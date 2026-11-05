@@ -1,0 +1,4 @@
+# Optional MCP runtime for the Claude channel and Codex relay adapter.
+# Install separately from the broker requirements in the selected interpreter.
+# mcp supplies anyio, httpx and httpx_sse used by the channel server.
+mcp>=1.26,<2

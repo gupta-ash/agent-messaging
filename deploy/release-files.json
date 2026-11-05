@@ -1,0 +1,225 @@
+{
+  "schema_version": 1,
+  "entries": [
+    {
+      "source": "LICENSE",
+      "destination": "LICENSE"
+    },
+    {
+      "source": "install.ps1",
+      "destination": "install.ps1"
+    },
+    {
+      "source": "deploy/release-files.json",
+      "destination": "deploy/release-files.json"
+    },
+    {
+      "source": "deploy/install-broker-stack.ps1",
+      "destination": "deploy/install-broker-stack.ps1"
+    },
+    {
+      "source": "deploy/install_runtime.py",
+      "destination": "deploy/install_runtime.py"
+    },
+    {
+      "source": "deploy/RUNBOOK.md",
+      "destination": "deploy/RUNBOOK.md"
+    },
+    {
+      "source": "deploy/adoption.json",
+      "destination": "deploy/adoption.json"
+    },
+    {
+      "source": "deploy/retirements.json",
+      "destination": "deploy/retirements.json"
+    },
+    {
+      "source": "src/broker/__init__.py",
+      "destination": "broker/broker/__init__.py"
+    },
+    {
+      "source": "src/broker/__main__.py",
+      "destination": "broker/broker/__main__.py"
+    },
+    {
+      "source": "src/broker/addressing.py",
+      "destination": "broker/broker/addressing.py"
+    },
+    {
+      "source": "src/broker/dashboard/__init__.py",
+      "destination": "broker/broker/dashboard/__init__.py"
+    },
+    {
+      "source": "src/broker/dashboard/api.py",
+      "destination": "broker/broker/dashboard/api.py"
+    },
+    {
+      "source": "src/broker/dashboard/dashboard.html",
+      "destination": "broker/broker/dashboard/dashboard.html"
+    },
+    {
+      "source": "src/broker/discord_poller.py",
+      "destination": "broker/broker/discord_poller.py"
+    },
+    {
+      "source": "src/broker/schema.sql",
+      "destination": "broker/broker/schema.sql"
+    },
+    {
+      "source": "src/broker/server.py",
+      "destination": "broker/broker/server.py"
+    },
+    {
+      "source": "harness/codex/codex_adapter.py",
+      "destination": "broker/codex_adapter.py"
+    },
+    {
+      "source": "harness/codex/codex_relay_mcp.py",
+      "destination": "broker/codex_relay_mcp.py"
+    },
+    {
+      "source": "harness/omp/omp_relay_extension.ts",
+      "destination": "broker/omp_relay_extension.ts"
+    },
+    {
+      "source": "harness/omp/omp_relay_mcp.py",
+      "destination": "broker/omp_relay_mcp.py"
+    },
+    {
+      "source": "requirements-mcp.txt",
+      "destination": "broker/requirements-mcp.txt"
+    },
+    {
+      "source": "requirements-omp-mcp.txt",
+      "destination": "broker/requirements-omp-mcp.txt"
+    },
+    {
+      "source": "requirements.txt",
+      "destination": "broker/requirements.txt"
+    },
+    {
+      "source": "pyproject.toml",
+      "destination": "broker/pyproject.toml"
+    },
+    {
+      "source": "deploy/scripts/agent-broker.service",
+      "destination": "broker/scripts/agent-broker.service"
+    },
+    {
+      "source": "harness/codex/codex-relay.ps1",
+      "destination": "broker/scripts/codex-relay.ps1"
+    },
+    {
+      "source": "deploy/scripts/enable-reaper.ps1",
+      "destination": "broker/scripts/enable-reaper.ps1"
+    },
+    {
+      "source": "deploy/scripts/install-systemd-autostart.sh",
+      "destination": "broker/scripts/install-systemd-autostart.sh"
+    },
+    {
+      "source": "deploy/scripts/install-windows-autostart.ps1",
+      "destination": "broker/scripts/install-windows-autostart.ps1"
+    },
+    {
+      "source": "deploy/scripts/broker-env.ps1",
+      "destination": "broker/scripts/broker-env.ps1"
+    },
+    {
+      "source": "deploy/scripts/restart-broker.ps1",
+      "destination": "broker/scripts/restart-broker.ps1"
+    },
+    {
+      "source": "deploy/scripts/start-broker.ps1",
+      "destination": "broker/scripts/start-broker.ps1"
+    },
+    {
+      "source": "deploy/scripts/start-broker.sh",
+      "destination": "broker/scripts/start-broker.sh"
+    },
+    {
+      "source": "harness/codex/start-codex-relay-session.ps1",
+      "destination": "broker/scripts/start-codex-relay-session.ps1"
+    },
+    {
+      "source": "deploy/scripts/stop-broker.ps1",
+      "destination": "broker/scripts/stop-broker.ps1"
+    },
+    {
+      "source": "deploy/server.py",
+      "destination": "broker/server.py"
+    },
+    {
+      "source": "harness/claude/local-relay-channel/.claude-plugin/plugin.json",
+      "destination": "home/.claude/plugins/local-relay-channel/.claude-plugin/plugin.json"
+    },
+    {
+      "source": "harness/claude/local-relay-channel/.mcp.json",
+      "destination": "home/.claude/plugins/local-relay-channel/.mcp.json"
+    },
+    {
+      "source": "harness/claude/local-relay-channel/README.md",
+      "destination": "home/.claude/plugins/local-relay-channel/README.md"
+    },
+    {
+      "source": "harness/claude/local-relay-channel/cc_channel",
+      "destination": "home/.claude/plugins/local-relay-channel/cc_channel"
+    },
+    {
+      "source": "harness/claude/local-relay-channel/cc_channel.bat",
+      "destination": "home/.claude/plugins/local-relay-channel/cc_channel.bat"
+    },
+    {
+      "source": "harness/claude/local-relay-channel/server.py",
+      "destination": "home/.claude/plugins/local-relay-channel/server.py"
+    },
+    {
+      "source": "skills/relay-check/SKILL.md",
+      "destination": "home/.agents/skills/relay-check/SKILL.md"
+    },
+    {
+      "source": "skills/relay-check/harness/claude/check.py",
+      "destination": "home/.agents/skills/relay-check/scripts/check.py"
+    },
+    {
+      "source": "skills/relay-name/SKILL.md",
+      "destination": "home/.agents/skills/relay-name/SKILL.md"
+    },
+    {
+      "source": "skills/relay-name/harness/claude/set_name.py",
+      "destination": "home/.agents/skills/relay-name/scripts/set_name.py"
+    },
+    {
+      "source": "skills/relay-send/SKILL.md",
+      "destination": "home/.agents/skills/relay-send/SKILL.md"
+    },
+    {
+      "source": "skills/relay-send/harness/claude/send.py",
+      "destination": "home/.agents/skills/relay-send/scripts/send.py"
+    },
+    {
+      "source": "harness/claude/hooks/relay/shared.py",
+      "destination": "home/.claude/hooks/relay/shared.py"
+    },
+    {
+      "source": "harness/claude/hooks/relay/broker_client.py",
+      "destination": "home/.claude/hooks/relay/broker_client.py"
+    },
+    {
+      "source": "harness/claude/hooks/relay/broker_connection.py",
+      "destination": "home/.claude/hooks/relay/broker_connection.py"
+    },
+    {
+      "source": "harness/claude/hooks/relay/register_session.py",
+      "destination": "home/.claude/hooks/relay/register_session.py"
+    },
+    {
+      "source": "harness/claude/hooks/relay/registry_gc.py",
+      "destination": "home/.claude/hooks/relay/registry_gc.py"
+    },
+    {
+      "source": "harness/claude/hooks/relay/bin/cc_channel.bat",
+      "destination": "home/.claude/hooks/relay/bin/cc_channel.bat"
+    }
+  ]
+}

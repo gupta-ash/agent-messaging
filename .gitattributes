@@ -1,0 +1,5 @@
+# Normalize shipped script text so POSIX shebangs never acquire CRLF.
+* text=auto eol=lf
+*.sh text eol=lf
+*.py text eol=lf
+*.ps1 text eol=lf

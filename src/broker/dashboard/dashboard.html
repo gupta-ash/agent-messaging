@@ -1,0 +1,621 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Broker Dashboard</title>
+  <style>
+    /* Ported flat / system-font styling from kanban.html. */
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      font-size: 14px;
+      background: #fafafa;
+      color: #222;
+    }
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 8px;
+      padding: 8px 16px;
+      border-bottom: 1px solid #ddd;
+      background: #fff;
+    }
+    header h1 { margin: 0; font-size: 16px; font-weight: 600; }
+    .meta {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 12px;
+      font-size: 12px;
+      color: #555;
+    }
+    .meta select, .meta label, .meta input, .meta button {
+      font: inherit;
+      font-size: 12px;
+    }
+    .meta select, .meta input[type="number"] {
+      padding: 2px 6px;
+      border: 1px solid #bbb;
+      background: #fff;
+    }
+    .meta input[type="number"] { width: 56px; }
+    .meta button {
+      padding: 3px 8px;
+      border: 1px solid #bbb;
+      background: #f5f5f5;
+      cursor: pointer;
+    }
+    .meta button:hover { background: #ececec; }
+    .meta label { display: inline-flex; align-items: center; gap: 4px; color: #555; }
+
+    #conn-status {
+      display: inline-block;
+      padding: 2px 8px;
+      border: 1px solid #ccc;
+      font-size: 11px;
+      font-family: ui-monospace, Consolas, monospace;
+    }
+    .conn-connecting { color: #888; }
+    .conn-connected { color: #080; border-color: #080; }
+    .conn-disconnected { color: #c00; border-color: #c00; }
+    .conn-reconnecting { color: #c80; border-color: #c80; }
+
+    section { padding: 12px 16px; }
+    h2.section-title {
+      font-size: 13px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: #444;
+      margin: 0 0 8px 0;
+    }
+    .liveness-summary {
+      font-size: 12px;
+      font-family: ui-monospace, Consolas, monospace;
+      color: #555;
+      margin-bottom: 8px;
+    }
+    .liveness-summary .seg { margin-right: 10px; }
+    .seg-live { color: #080; font-weight: 600; }
+    .seg-recent { color: #06c; font-weight: 600; }
+    .seg-idle { color: #c80; }
+    .seg-stale { color: #999; }
+
+    /* (A) Active Now cards */
+    #agents-cards {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+      gap: 8px;
+    }
+    #agents-cards:empty::after {
+      content: "(no agents in this window)";
+      color: #888;
+      font-style: italic;
+    }
+    .card {
+      border: 1px solid #ccc;
+      border-left-width: 4px;
+      border-radius: 2px;
+      padding: 6px 8px;
+      background: #fdfdfd;
+      font-size: 12px;
+    }
+    .card[data-liveness="live"]   { border-left-color: #080; }
+    .card[data-liveness="recent"] { border-left-color: #06c; }
+    .card[data-liveness="idle"]   { border-left-color: #c80; }
+    .card[data-liveness="stale"]  { border-left-color: #bbb; }
+    .card-name {
+      font-weight: 600;
+      font-size: 13px;
+      color: #111;
+      word-break: break-all;
+    }
+    .card-line { margin-top: 2px; color: #555; }
+    .card-flag { color: #c60; font-weight: 700; margin-left: 4px; }
+    .card-task {
+      margin-top: 4px;
+      color: #222;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    /* (B) Pipelines table + (C) Messages table */
+    table { width: 100%; border-collapse: collapse; background: #fff; font-size: 12px; }
+    th, td { padding: 4px 8px; border: 1px solid #ddd; text-align: left; vertical-align: top; }
+    th { background: #f3f3f3; font-weight: 600; color: #333; }
+    tbody:empty::after {
+      content: "(none)";
+      display: block;
+      padding: 8px;
+      color: #888;
+      font-style: italic;
+    }
+    .controls { margin-top: 8px; display: flex; align-items: center; gap: 8px; font-size: 12px; }
+    .controls button {
+      font: inherit; font-size: 12px; padding: 2px 8px;
+      border: 1px solid #bbb; background: #f5f5f5; cursor: pointer;
+    }
+    .controls button:disabled { color: #aaa; cursor: default; }
+    .count {
+      display: inline-block; padding: 0 6px; font-size: 11px;
+      font-family: ui-monospace, Consolas, monospace; background: #eee; color: #555;
+    }
+    #messages-table tr.msg-row:hover { background: #f9f9f9; cursor: pointer; }
+    .badge {
+      display: inline-block; padding: 1px 6px; font-size: 10px;
+      font-family: ui-monospace, Consolas, monospace; border-radius: 2px;
+      background: #e8eef5; color: #234; border: 1px solid #cfd9e6;
+    }
+
+    /* Prune toast */
+    #toast {
+      position: fixed; right: 16px; bottom: 16px;
+      background: #222; color: #fff; padding: 8px 14px;
+      border-radius: 4px; font-size: 12px; opacity: 0;
+      transition: opacity 0.25s; pointer-events: none; max-width: 360px;
+      word-break: break-word;
+    }
+    #toast.show { opacity: 0.95; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Broker Dashboard</h1>
+    <div class="meta">
+      <span id="conn-status" class="conn-disconnected">disconnected</span>
+      <label>window
+        <select id="window">
+          <option value="900000">15m</option>
+          <option value="3600000" selected>1h</option>
+          <option value="86400000">24h</option>
+          <option value="all">all</option>
+        </select>
+      </label>
+      <label>prune older than
+        <input type="number" id="prune-days" value="7" min="1">
+        days
+      </label>
+      <button id="prune-btn" type="button">prune</button>
+      <button id="refresh-btn" type="button">refresh</button>
+    </div>
+  </header>
+
+  <!-- (A) Active Now -->
+  <section id="agents-section" aria-label="Active agents">
+    <h2 class="section-title">Active Now</h2>
+    <div class="liveness-summary" id="liveness-summary"></div>
+    <div id="agents-cards"></div>
+  </section>
+
+  <!-- (B) In-flight Pipelines -->
+  <section id="pipelines-section" aria-label="In-flight pipelines">
+    <h2 class="section-title">
+      In-flight Pipelines
+      <span class="count" id="pipelines-count">0</span>
+    </h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Project</th><th>Shape</th><th>Status</th><th>Progress</th><th>Age</th>
+        </tr>
+      </thead>
+      <tbody id="pipelines-body"></tbody>
+    </table>
+    <div class="controls">
+      <label><input type="checkbox" id="show-terminal"> show terminal</label>
+      <button id="pipe-prev" type="button" disabled>prev</button>
+      <button id="pipe-next" type="button" disabled>next</button>
+      <span id="pipe-page-info"></span>
+    </div>
+  </section>
+
+  <!-- (C) Recent Messages -->
+  <section id="messages-section" aria-label="Recent messages">
+    <h2 class="section-title">Recent Messages</h2>
+    <table id="messages-table">
+      <thead>
+        <tr>
+          <th>Time</th><th>From → To</th><th>Kind</th><th>Content</th>
+        </tr>
+      </thead>
+      <tbody id="messages-body"></tbody>
+    </table>
+    <div class="controls">
+      <button id="msg-load-older" type="button" disabled>load older</button>
+    </div>
+  </section>
+
+  <div id="toast"></div>
+
+  <script>
+    "use strict";
+
+    // ---- shared state ----
+    const PIPE_LIMIT = 50;
+    const MSG_LIMIT = 50;
+    let pipeOffset = 0;
+    let pipeTotalForStatus = 0;   // total rows available for the current status filter
+    let msgNextBefore = null;     // cursor for "load older"
+    let evtSource = null;
+    let refreshInFlight = false;  // guard concurrent refreshAll calls
+    let sseHighWater = 0;         // global event_id high-water mark for SSE cursor (no replay)
+    const renderedMsgIds = new Set();  // event_ids already in the table (live de-dup)
+
+    // ---- utilities ----
+    function windowParam() {
+      const v = document.getElementById("window").value;
+      return v === "all" ? null : Number(v);
+    }
+
+    function relativeTime(tsMs) {
+      if (!tsMs || typeof tsMs !== "number") return "—";
+      const deltaSec = Math.floor((Date.now() - tsMs) / 1000);
+      if (deltaSec < 0) return "in future";
+      if (deltaSec < 60) return deltaSec + "s ago";
+      if (deltaSec < 3600) return Math.floor(deltaSec / 60) + "m ago";
+      if (deltaSec < 86400) return Math.floor(deltaSec / 3600) + "h ago";
+      return Math.floor(deltaSec / 86400) + "d ago";
+    }
+
+    function fmtTs(tsMs) {
+      if (!tsMs) return "";
+      return new Date(tsMs).toLocaleString('en-US', { timeZoneName: 'short' });
+    }
+
+    function setConnStatus(state) {
+      const el = document.getElementById("conn-status");
+      el.className = "conn-" + state;
+      el.textContent = state;
+    }
+
+    let _toastTimer = null;
+    function showToast(text) {
+      const el = document.getElementById("toast");
+      el.textContent = text;            // textContent only — XSS-safe
+      el.classList.add("show");
+      if (_toastTimer) clearTimeout(_toastTimer);
+      _toastTimer = setTimeout(function () { el.classList.remove("show"); }, 4000);
+    }
+
+    // ==================== (A) Active Now ====================
+    // XSS safety: every user-controlled field (name, kind, channel, status,
+    // current_task) is inserted via textContent / createElement. Never innerHTML.
+    function renderAgentCard(a) {
+      const card = document.createElement("div");
+      card.className = "card";
+      card.dataset.liveness = a.liveness || "stale";
+
+      const name = document.createElement("div");
+      name.className = "card-name";
+      name.textContent = a.name || (a.id ? a.id.slice(0, 8) : "");
+      card.appendChild(name);
+
+      const meta = document.createElement("div");
+      meta.className = "card-line";
+      meta.textContent = (a.kind || "(unknown)") + " · " +
+                         (a.liveness || "") + " · " + relativeTime(a.effective_ts);
+      card.appendChild(meta);
+
+      const statusLine = document.createElement("div");
+      statusLine.className = "card-line";
+      statusLine.textContent = "status: " + (a.status || "");
+      if (a.flag) {
+        const flag = document.createElement("span");
+        flag.className = "card-flag";
+        flag.textContent = a.flag;       // "⚠" — contradiction marker
+        flag.title = "stored status active but derived liveness is idle/stale";
+        statusLine.appendChild(flag);
+      }
+      card.appendChild(statusLine);
+
+      if (a.current_task) {
+        const task = document.createElement("div");
+        task.className = "card-task";
+        task.textContent = a.current_task;
+        card.appendChild(task);
+      }
+      return card;
+    }
+
+    async function refreshAgents() {
+      const w = windowParam();
+      let url = "/api/dashboard/agents";
+      if (w != null) url += "?within_ms=" + encodeURIComponent(w);
+      const resp = await fetch(url);
+      if (!resp.ok) { setConnStatus("disconnected"); return; }
+      const data = await resp.json();
+
+      const c = data.counts || {};
+      const summary = document.getElementById("liveness-summary");
+      summary.replaceChildren();
+      const segs = [
+        ["Live", c.live || 0, "seg-live"],
+        ["Recent", c.recent || 0, "seg-recent"],
+        ["Idle", c.idle || 0, "seg-idle"],
+        ["Stale", c.stale || 0, "seg-stale"],
+      ];
+      for (const [label, n, cls] of segs) {
+        const span = document.createElement("span");
+        span.className = "seg " + cls;
+        span.textContent = label + " " + n;
+        summary.appendChild(span);
+      }
+
+      const container = document.getElementById("agents-cards");
+      container.replaceChildren();
+      for (const a of (data.agents || [])) container.appendChild(renderAgentCard(a));
+    }
+
+    // ==================== (B) In-flight Pipelines ====================
+    function renderPipelineRow(p) {
+      const tr = document.createElement("tr");
+      const cells = [
+        p.project_name || "",
+        p.shape || "",
+        p.status || "",
+        (p.steps_done != null ? p.steps_done : 0) + " / " +
+          (p.step_count != null ? p.step_count : 0),
+        relativeTime(p.started_at),
+      ];
+      for (const text of cells) {
+        const td = document.createElement("td");
+        td.textContent = text;
+        tr.appendChild(td);
+      }
+      return tr;
+    }
+
+    async function refreshPipelines() {
+      const showTerminal = document.getElementById("show-terminal").checked;
+      const status = showTerminal ? "all" : "in_flight";
+      const url = "/api/dashboard/pipelines?status=" + status +
+                  "&limit=" + PIPE_LIMIT + "&offset=" + pipeOffset;
+      const resp = await fetch(url);
+      if (!resp.ok) { setConnStatus("disconnected"); return; }
+      const data = await resp.json();
+
+      pipeTotalForStatus = showTerminal ? (data.total || 0) : (data.in_flight_count || 0);
+
+      const tbody = document.getElementById("pipelines-body");
+      tbody.replaceChildren();
+      for (const p of (data.pipelines || [])) tbody.appendChild(renderPipelineRow(p));
+
+      document.getElementById("pipelines-count").textContent =
+        (data.in_flight_count || 0) + " in-flight / " + (data.total || 0) + " total";
+
+      const start = pipeTotalForStatus === 0 ? 0 : pipeOffset + 1;
+      const end = pipeOffset + (data.returned || 0);
+      document.getElementById("pipe-page-info").textContent =
+        pipeTotalForStatus === 0 ? "" : (start + "–" + end + " of " + pipeTotalForStatus);
+      document.getElementById("pipe-prev").disabled = pipeOffset <= 0;
+      document.getElementById("pipe-next").disabled = end >= pipeTotalForStatus;
+    }
+
+    // ==================== (C) Recent Messages ====================
+    function renderMessageRow(m) {
+      const tr = document.createElement("tr");
+      tr.className = "msg-row";
+
+      const cTime = document.createElement("td");
+      cTime.textContent = fmtTs(m.ts);
+      tr.appendChild(cTime);
+
+      const cPair = document.createElement("td");
+      cPair.textContent = (m.from_agent || "?") + " → " + (m.to_agent || "?");
+      tr.appendChild(cPair);
+
+      const cKind = document.createElement("td");
+      const badge = document.createElement("span");
+      badge.className = "badge";
+      badge.textContent = m.kind || "";
+      cKind.appendChild(badge);
+      tr.appendChild(cKind);
+
+      const cContent = document.createElement("td");
+      const full = m.content == null ? "" : String(m.content);
+      cContent.dataset.full = full;
+      cContent.textContent = full.length > 80 ? (full.slice(0, 80) + "…") : full;
+      tr.appendChild(cContent);
+
+      // click-to-expand: swap text safely (textContent only).
+      tr.addEventListener("click", function () {
+        if (tr.dataset.expanded === "1") {
+          tr.dataset.expanded = "0";
+          cContent.textContent = full.length > 80 ? (full.slice(0, 80) + "…") : full;
+        } else {
+          tr.dataset.expanded = "1";
+          cContent.textContent = cContent.dataset.full;
+        }
+      });
+      return tr;
+    }
+
+    async function refreshMessages() {
+      const w = windowParam();
+      let url = "/api/dashboard/messages?kind=agent_message&limit=" + MSG_LIMIT;
+      if (w != null) url += "&within_ms=" + encodeURIComponent(w);
+      const resp = await fetch(url);
+      if (!resp.ok) { setConnStatus("disconnected"); return; }
+      const data = await resp.json();
+
+      if (data.latest_event_id != null) sseHighWater = data.latest_event_id;
+
+      const tbody = document.getElementById("messages-body");
+      tbody.replaceChildren();
+      for (const m of (data.messages || [])) {
+        if (m.event_id != null) renderedMsgIds.add(m.event_id);
+        tbody.appendChild(renderMessageRow(m));
+      }
+
+      msgNextBefore = data.next_before;
+      document.getElementById("msg-load-older").disabled = (msgNextBefore == null);
+    }
+
+    async function loadOlderMessages() {
+      if (msgNextBefore == null) return;
+      const w = windowParam();
+      let url = "/api/dashboard/messages?kind=agent_message&limit=" + MSG_LIMIT +
+                "&before=" + encodeURIComponent(msgNextBefore);
+      if (w != null) url += "&within_ms=" + encodeURIComponent(w);
+      const resp = await fetch(url);
+      if (!resp.ok) return;
+      const data = await resp.json();
+      const tbody = document.getElementById("messages-body");
+      for (const m of (data.messages || [])) {
+        if (m.event_id != null) renderedMsgIds.add(m.event_id);
+        tbody.appendChild(renderMessageRow(m));
+      }
+      msgNextBefore = data.next_before;
+      document.getElementById("msg-load-older").disabled = (msgNextBefore == null);
+    }
+
+    // ==================== orchestration ====================
+    async function refreshAll() {
+      if (refreshInFlight) return;
+      refreshInFlight = true;
+      try {
+        await Promise.all([refreshAgents(), refreshPipelines(), refreshMessages()]);
+      } catch (e) {
+        // network blips shouldn't wedge the UI; conn-status already reflects it.
+      } finally {
+        refreshInFlight = false;
+      }
+    }
+
+    // ==================== prune control ====================
+    async function doPrune() {
+      const days = parseInt(document.getElementById("prune-days").value, 10);
+      if (!(days >= 1)) { showToast("days must be >= 1"); return; }
+      if (!confirm("Prune agents/pipelines older than " + days + " days? This deletes broker rows.")) {
+        return;
+      }
+      try {
+        const resp = await fetch("/api/admin/prune", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ days: days }),
+        });
+        if (!resp.ok) {
+          showToast("Prune failed: HTTP " + resp.status);
+          return;
+        }
+        const data = await resp.json();
+        const a = data.deleted_agents != null ? data.deleted_agents : "?";
+        const p = data.deleted_pipelines != null ? data.deleted_pipelines : "?";
+        showToast("Pruned: agents=" + a + " pipelines=" + p);
+        refreshAll();
+      } catch (e) {
+        showToast("Prune error: " + e);
+      }
+    }
+
+    // ==================== SSE ====================
+    // Per the broker contract: pipeline_event carries no structured pipeline_id
+    // (it's inside content) -> live pipeline updates refetch the snapshot rather
+    // than parse the event. Refetches are guarded by refreshInFlight indirectly
+    // via the per-section async functions (each is idempotent).
+    //
+    // RETIRED 2026-08-04 - the broker's observability half is deprecated
+    // (BROKER_HOOK_ENABLED "off"), so pipeline_event is no longer emitted and
+    // the case below is dead-by-design. Kept, not deleted (deprecate-never-
+    // delete). agent_status_change and agent_message are UNAFFECTED - both
+    // derive from relay traffic, which is non-deprecable (server.py sse_kind()
+    // maps message_log kind "status" -> "agent_status_change").
+    // Consequence: the pipelines pane no longer auto-refreshes. pipelines_view
+    // itself still updates server-side (watcher-driven, debounced - server.py
+    // refresh_pipelines_view), so the header "refresh" button and the window /
+    // show-terminal / prev / next controls all return current data.
+    // MEASURED 2026-08-04: that view churns - 167 of 266 rows refreshed inside
+    // 24h - so an OPEN page WILL drift here, while Active Now and Recent
+    // Messages keep live-updating. The page therefore LOOKS current when this
+    // one pane is not. Accepted deliberately; revisit if it misleads.
+    function handleSse(rawData, lastEventId) {
+      let payload;
+      try { payload = JSON.parse(rawData); } catch (e) { return; }
+      switch (payload.kind) {
+        case "agent_status_change":
+          refreshAgents();
+          break;
+        // RETIRED 2026-08-04 - dead-by-design; pipeline_event is no longer
+        // emitted. Kept deliberately so the dependency stays on the record.
+        case "pipeline_event":
+          refreshPipelines();
+          break;
+        case "agent_message": {
+          // Only render genuinely-new, unseen messages. The SSE cursor is opened
+          // at sseHighWater so the broker replays nothing historical, but guard
+          // anyway: skip if the event_id is at/below the high-water mark or has
+          // already been rendered (de-dup against the REST snapshot).
+          const eid = parseInt(lastEventId, 10);
+          if (!Number.isNaN(eid) && (eid <= sseHighWater || renderedMsgIds.has(eid))) {
+            break;
+          }
+          if (!Number.isNaN(eid)) renderedMsgIds.add(eid);
+          prependLiveMessage(payload, Number.isNaN(eid) ? null : eid);
+          break;
+        }
+        default:
+          break;
+      }
+    }
+
+    function prependLiveMessage(payload, eid) {
+      const data = payload.data || {};
+      const msg = {
+        event_id: eid,
+        ts: payload.ts,
+        from_agent: payload.agent,
+        to_agent: data.to_agent,
+        kind: "agent_message",
+        content: data.content,
+      };
+      const tbody = document.getElementById("messages-body");
+      const row = renderMessageRow(msg);
+      if (tbody.firstChild) tbody.insertBefore(row, tbody.firstChild);
+      else tbody.appendChild(row);
+    }
+
+    function openEventSource() {
+      setConnStatus("connecting");
+      // Open at the high-water mark so the broker replays nothing historical
+      // (it replays only event_id > cursor). Opened ONCE at init.
+      evtSource = new EventSource("/api/events?cursor=" + (sseHighWater || 0));
+      evtSource.onopen = function () { setConnStatus("connected"); };
+      evtSource.onerror = function () {
+        if (evtSource && evtSource.readyState === EventSource.CONNECTING) {
+          setConnStatus("reconnecting");
+        } else {
+          setConnStatus("disconnected");
+        }
+      };
+      evtSource.onmessage = function (ev) { handleSse(ev.data, ev.lastEventId); };
+    }
+
+    // ==================== wiring ====================
+    document.getElementById("window").addEventListener("change", function () {
+      pipeOffset = 0;
+      refreshAll();
+    });
+    document.getElementById("refresh-btn").addEventListener("click", refreshAll);
+    document.getElementById("prune-btn").addEventListener("click", doPrune);
+    document.getElementById("show-terminal").addEventListener("change", function () {
+      pipeOffset = 0;
+      refreshPipelines();
+    });
+    document.getElementById("pipe-prev").addEventListener("click", function () {
+      pipeOffset = Math.max(0, pipeOffset - PIPE_LIMIT);
+      refreshPipelines();
+    });
+    document.getElementById("pipe-next").addEventListener("click", function () {
+      pipeOffset = pipeOffset + PIPE_LIMIT;
+      refreshPipelines();
+    });
+    document.getElementById("msg-load-older").addEventListener("click", loadOlderMessages);
+
+    refreshAll().then(openEventSource);
+  </script>
+</body>
+</html>

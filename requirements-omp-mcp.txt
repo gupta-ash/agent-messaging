@@ -1,0 +1,4 @@
+# Optional OMP MCP adapter; provision in the declared OMP runtime interpreter.
+-r requirements-mcp.txt
+cryptography>=42
+PyYAML>=6,<7

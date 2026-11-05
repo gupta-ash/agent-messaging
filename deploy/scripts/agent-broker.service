@@ -1,0 +1,18 @@
+[Unit]
+Description=agent-messaging local broker
+Documentation=https://github.com/gupta-ash/agent-messaging
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/.agents/services/broker
+EnvironmentFile=%h/.agents/services/broker/broker.env
+ExecStart=%h/.agents/services/broker/.venv/bin/python -B server.py
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target

@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# cc_channel — launch Claude Code with local-relay-channel enabled.
+# Forwards all arguments to the Claude Code command on PATH.
+#
+# `exec` so signals (Ctrl-C) and exit codes propagate cleanly to the caller.
+exec claude --dangerously-load-development-channels server:local-relay-channel "$@"

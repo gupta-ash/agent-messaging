@@ -1,0 +1,6 @@
+{
+  "name": "local-relay-channel",
+  "description": "Custom MCP channel server that subscribes to the local broker's SSE stream and pushes inter-agent messages into this CC session's context via notifications/claude/channel (no polling).",
+  "version": "0.1.0",
+  "keywords": ["channel", "broker", "inter-agent", "push", "mcp", "relay"]
+}

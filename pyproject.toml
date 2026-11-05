@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agent-messaging"
+version = "0.0.0"
+description = "Fleet coordination broker and standalone harness adapters"
+requires-python = ">=3.12"
+dynamic = ["dependencies"]
+
+[project.optional-dependencies]
+claude-mcp = ["mcp>=1.26,<2"]
+omp-mcp = ["mcp>=1.26,<2", "cryptography>=42", "PyYAML>=6,<7"]
+dev = ["pytest>=8,<9", "pytest-asyncio>=0.23,<1"]
+
+[project.scripts]
+agent-messaging = "broker.server:main"
+
+[tool.setuptools.dynamic]
+dependencies = {file = ["requirements.txt"]}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+broker = ["schema.sql", "dashboard/dashboard.html"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests", "skills"]
+pythonpath = ["src", "harness/codex", "harness/omp"]

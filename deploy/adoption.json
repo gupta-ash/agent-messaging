@@ -1,0 +1,119 @@
+{
+  "schema_version": 1,
+  "files": {
+    "broker/broker/__init__.py": [
+      "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    ],
+    "broker/broker/__main__.py": [
+      "939813e6697436bc4ee197e789b2fdd922c626a78af81418d810b3ffc72e546e"
+    ],
+    "broker/broker/addressing.py": [
+      "f653fde0a176edfa9631de524fb41b7e42aa7269b85973c3529b8c85e99c7df1"
+    ],
+    "broker/broker/dashboard/__init__.py": [
+      "b374c32085f5a85e90b5cc4148db974d056165116ec30d4b95bfcf5bef4a66fe"
+    ],
+    "broker/broker/dashboard/api.py": [
+      "57e756954bfa77ce673e03fcc8903a0e53a7fec79c52eea502c77456cf467d7c"
+    ],
+    "broker/broker/dashboard/dashboard.html": [
+      "d12be89f8f9a1e8c62b17e006b0b86688ced2ea8b5ee9052fd9173e882c6279e"
+    ],
+    "broker/broker/discord_poller.py": [
+      "88c1bc7ccd57ae98fa86550289bedeaf7ec5936648373c70dff019ed57213665"
+    ],
+    "broker/broker/schema.sql": [
+      "39a0dee4733379e1ae5e8c6f64074016d62305d868ffafc34577ed9696e34c54"
+    ],
+    "broker/broker/server.py": [
+      "ef4503604ff37c21cc14e32ffe36c249ba6bf050d43cee230965eb8287c49092"
+    ],
+    "broker/codex_adapter.py": [
+      "2540b6c263b02bfb93a512b7b48f62b2b367ca2d8006e0a89755eb1511371522"
+    ],
+    "broker/codex_relay_mcp.py": [
+      "5dd4b2b756006d63c3c09d64baba1c4adf8403484bb71999619edaf245d623fc"
+    ],
+    "broker/omp_relay_extension.ts": [
+      "4d620bfdf050e832edd569f6149fbbf503d87eeed649f805d6e49a05a7e6a83e"
+    ],
+    "broker/omp_relay_mcp.py": [
+      "c67cc246d6cbfd39e4dbb59a58771a91487f24b0d3107cc23f635305031d786e"
+    ],
+    "broker/requirements-mcp.txt": [
+      "15bc581b21021cb7465c455d07f24932fe4d5f1cf1b948d5996b934d1fdb0e70"
+    ],
+    "broker/requirements-omp-mcp.txt": [
+      "98fbe115975af78d51af4a31ac58c62e667f586aa199965c8cc6cdc8d010dffa"
+    ],
+    "broker/requirements.txt": [
+      "5fdefd517487dd45365f6cef6dbd68e8c07c7dd33712bd5b2220e420b8aff7e1"
+    ],
+    "broker/scripts/agent-broker.service": [
+      "118705d0e26ce7cff38bf64ec3b5d314b7902a0a7c8d4e00228c65e40167ecff"
+    ],
+    "broker/scripts/codex-relay.ps1": [
+      "6ea9f540c110d962a37c8d37f4f6d5d92e641e4d90ba62aac1316b3cecd0ac19"
+    ],
+    "broker/scripts/enable-reaper.ps1": [
+      "5ec30be9095ecdfbece2e6cb2edde2007047aeda4afed8b5c58587d7cc51590d"
+    ],
+    "broker/scripts/install-systemd-autostart.sh": [
+      "293fd1197f0aebc8cb34c49eabec5497f4758b5b5993fa36c0d3a053aa4bdbbb"
+    ],
+    "broker/scripts/install-windows-autostart.ps1": [
+      "ab07d364ebd86f300c9b0d6e9d7e93814693c46dd10b94e8e3e6a6dd7d5eb43c"
+    ],
+    "broker/scripts/restart-broker.ps1": [
+      "7d3355d83b73d04d4c23279531cd3dad3283b5617a64ff9c1d336fc4058670f1"
+    ],
+    "broker/scripts/start-broker.ps1": [
+      "b61ff008aca59141fdb43da842a0745a7f27765b7b4494f7370b0fbab696c7e9"
+    ],
+    "broker/scripts/start-broker.sh": [
+      "3f0b08405431498a97cafcbd41fcac2954c96dad873b86a13b2bc8309a6921db"
+    ],
+    "broker/scripts/start-codex-relay-session.ps1": [
+      "65363d6d984ffb6391360cc77bfc38cbbd108ef5cb0744eeb0d5f7cc484269a4"
+    ],
+    "broker/scripts/stop-broker.ps1": [
+      "1015c457e2b6ffacb863a8f8fb771899478a0f4dbaf97ec97fda6995223727cd"
+    ],
+    "broker/server.py": [
+      "d9dcf94f785242aed8b85456e33cbe7c669ee7a298e94d348bffe85ac3c76d74"
+    ],
+    "home/.claude/hooks/relay/bin/cc_channel.bat": [
+      "ea917d465467c6f6072e7bc4711bd125fb001fdb106721ba000a43fcd3fc243a"
+    ],
+    "home/.claude/hooks/relay/broker_client.py": [
+      "022c9191957a670bdff7bced327cbece5d46eb24862d5fe85944cca4946457b8"
+    ],
+    "home/.claude/hooks/relay/register_session.py": [
+      "dfd2756c6453aaaa62339373784f52cad23909097e411cc5b9429796848949eb"
+    ],
+    "home/.claude/hooks/relay/registry_gc.py": [
+      "ed42c75081afd523481d580316517ec2bcb39705ad9b2d82725489d7bc00946d"
+    ],
+    "home/.claude/hooks/relay/shared.py": [
+      "9952c20e92bcbcd7ed1a24d6d929f97331af9f89d5b74c9a85ca3ebb44445817"
+    ],
+    "home/.claude/plugins/local-relay-channel/.claude-plugin/plugin.json": [
+      "26d7bd1829807a5a4438d9cfa5261e2cac6a7ce82d855b86ba55e32e2c26019d"
+    ],
+    "home/.claude/plugins/local-relay-channel/.mcp.json": [
+      "40cb68302133f01ae3f2223ec94b03fbeaf67d7cd0b1b700344f4870d8fc61e0"
+    ],
+    "home/.claude/plugins/local-relay-channel/README.md": [
+      "49d774eb0cfd10743e7cf202278e761c07af77052074c9c498ffcb9ef512dd63"
+    ],
+    "home/.claude/plugins/local-relay-channel/cc_channel": [
+      "b58340580b56aaf059008e135d075e9130cfec4f2cb33d8a5c274ef3a22cff8f"
+    ],
+    "home/.claude/plugins/local-relay-channel/cc_channel.bat": [
+      "c4d55d0c95c8226190dd4a940eddbab983df0e89ccf95e409c8a18f8ca7f915f"
+    ],
+    "home/.claude/plugins/local-relay-channel/server.py": [
+      "94ac1923a5e7e0e0cf2d6c8b724526e1a0f5711f890768d7067c454e0f4bebeb"
+    ]
+  }
+}
