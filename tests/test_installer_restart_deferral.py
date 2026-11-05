@@ -156,7 +156,7 @@ def test_unsafe_members_refuse(name):
 
 
 def test_actual_built_package_check_install_and_retained_verify(tmp_path, monkeypatch):
-    """Opt-in real release lane: real venv, wheel/dependencies, no service launch."""
+    """Real venv/wheels/bytes; synthetic account and no-listener observation only."""
     bundle_input = os.environ.get("AGENT_MESSAGING_TEST_BUNDLE")
     receipt_input = os.environ.get("AGENT_MESSAGING_TEST_RECEIPT")
     python = os.environ.get("AGENT_MESSAGING_TEST_BASE_PYTHON")
@@ -170,6 +170,9 @@ def test_actual_built_package_check_install_and_retained_verify(tmp_path, monkey
     user, work = tmp_path / "home", tmp_path / "work"
     installer.private_directory(user)
     options = {"Version": release["version"], "Mode": "Check", "WorkRoot": str(work), "UserRoot": str(user), "InstallRoot": str(user / ".agents/services/broker"), "PythonExe": python, "Harness": ["none"], "BundleDir": str(bundle), "ReleaseReceipt": str(release_path)}
+    # This file-only fixture must not inspect or adopt the production listener.
+    # Actual installed entrypoints use separately owned ephemeral loopback ports.
+    monkeypatch.setattr(installer, "listener", lambda port, root: None)
     result = installer.run(options, actual_profile=user)
     assert result["status"] == "checked"
     assert not (user / ".agents").exists()
