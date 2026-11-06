@@ -25,7 +25,7 @@ COMPONENT = "agent-messaging"
 REPOSITORY = "gupta-ash/agent-messaging"
 RECEIPT_KEYS = {"schema_version", "component", "repository", "version", "source_commit", "archive_sha256", "parameters", "files", "configuration_paths", "held_paths", "last_code_change_utc"}
 RELEASE_KEYS = {"schema_version", "component", "repository", "version", "source_commit", "archive_sha256", "files"}
-OPTION_NAMES = {"Version", "WorkRoot", "Mode", "UserRoot", "InstallRoot", "PythonExe", "Harness", "Port", "OmpCommand", "OmpAgentRoot", "OmpProfile", "OmpPythonExe", "RelayStateRoot", "RelayRuntimeRoot", "AdoptExisting", "Activate", "BundleDir", "ReleaseReceipt"}
+OPTION_NAMES = {"Version", "WorkRoot", "Mode", "UserRoot", "InstallRoot", "PythonExe", "Harness", "Port", "OmpCommand", "OmpAgentRoot", "OmpProfile", "OmpPythonExe", "RelayStateRoot", "RelayRuntimeRoot", "Activate", "BundleDir", "ReleaseReceipt"}
 IDENTITIES = {"UserRoot", "InstallRoot", "PythonExe", "Port", "OmpCommand", "OmpAgentRoot", "OmpProfile", "OmpPythonExe", "RelayStateRoot", "RelayRuntimeRoot"}
 STATIC = {"LICENSE", "install.ps1", "manifest.json", "VERSION.txt", ".gitignore", "deploy/release-files.json", "deploy/adoption.json", "deploy/retirements.json", "deploy/install-broker-stack.ps1", "deploy/install_runtime.py", "deploy/RUNBOOK.md"}
 HEX64 = re.compile(r"[0-9a-f]{64}\Z")
@@ -296,7 +296,8 @@ def selected_destination(name: str, p: dict) -> Path | None:
 def resolve_parameters(options: dict, prior: dict | None) -> dict:
     require(set(options) <= OPTION_NAMES, "Unknown installer option")
     require(options.get("Mode", "Install") in {"Check", "Install", "Verify"}, "Unknown operation")
-    require(bool(re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}", options["Version"])) and options["Version"] not in {"latest", "HEAD", "main", "master"}, "Exact release tag required")
+    version = options.get("Version")
+    require(isinstance(version, str) and bool(re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}", version)) and version not in {"latest", "HEAD", "main", "master"}, "Frontdoor must resolve an exact release tag")
     p = dict(prior["parameters"]) if prior else {}
     for key in IDENTITIES:
         if key in options:
@@ -309,6 +310,8 @@ def resolve_parameters(options: dict, prior: dict | None) -> dict:
                 continue
             p[key] = value
     p.setdefault("InstallRoot", str(Path(p["UserRoot"]) / ".agents/services/broker"))
+    if "PythonExe" not in p:
+        p["PythonExe"] = discover_python(Path(p["InstallRoot"]))
     envfile = Path(p["InstallRoot"]) / "broker.env"
     existing_env = read_env(envfile) if envfile.exists() else {}
     if "BROKER_PORT" in existing_env:
@@ -320,6 +323,11 @@ def resolve_parameters(options: dict, prior: dict | None) -> dict:
     require(type(p["Port"]) is int and 1 <= p["Port"] <= 65535, "Invalid Port")
     require(existing_env.get("BROKER_HOST", "127.0.0.1") == "127.0.0.1", "Existing broker must bind loopback before adoption")
     raw = options.get("Harness")
+    if raw is None and not prior:
+        raw = [name for name in ("claude", "codex") if shutil.which(name)]
+        if options.get("OmpCommand") or os.environ.get("OMP_COMMAND") or shutil.which("omp"):
+            raw.append("omp")
+        raw = raw or ["none"]
     if isinstance(raw, str):
         raw = [raw]
     require(raw is None or bool(raw) and set(raw) <= {"none", "claude", "codex", "omp"} and not ("none" in raw and len(raw) != 1), "Invalid Harness selection")
@@ -328,10 +336,181 @@ def resolve_parameters(options: dict, prior: dict | None) -> dict:
     if options.get("Mode") == "Verify" and raw is not None:
         require(requested == previous, "Verify Harness conflicts with retained selection")
     p["Harness"] = sorted(previous | requested) or ["none"]
-    if "omp" in p["Harness"]:
-        for key in ("OmpCommand", "OmpAgentRoot", "OmpPythonExe", "RelayStateRoot", "RelayRuntimeRoot"):
-            require(key in p and bool(p[key]), f"OMP selection requires explicit {key}")
     return p
+
+
+def discover_command(value: str | None, environment: str, name: str) -> str:
+    selected = value or os.environ.get(environment) or shutil.which(name)
+    require(bool(selected), f"Missing {name} prerequisite: {environment} or PATH must select an existing executable")
+    path = absolute(selected)
+    no_links(path, leaf_file=True)
+    require(path.is_file(), f"Missing/unsafe {name} executable: {path}")
+    return str(path)
+
+
+def discover_python(root: Path) -> str:
+    configuration = root / ".venv/pyvenv.cfg"
+    if configuration.exists():
+        fields = {}
+        no_links(configuration, leaf_file=True)
+        for line in configuration.read_text(encoding="utf-8-sig").splitlines():
+            if "=" in line:
+                key, value = (item.strip() for item in line.split("=", 1))
+                require(key not in fields, "Duplicate legacy venv configuration field")
+                fields[key] = value
+        require(fields.get("version", "").startswith("3.12.") and fields.get("include-system-site-packages") == "false" and fields.get("home"), "Existing broker venv must declare its base Python 3.12 without global site packages")
+        home = absolute(fields["home"])
+        no_links(home)
+        require(home.is_dir(), "Legacy venv home must name an existing base Python directory")
+        base = home / "python.exe"
+        no_links(base, leaf_file=True)
+        require(base.is_file(), "Legacy venv home is missing its declared base python.exe; no alternate interpreter is guessed")
+        if "executable" in fields:
+            recorded = absolute(fields["executable"])
+            no_links(recorded, leaf_file=True)
+            require(recorded == base, "Legacy venv executable metadata conflicts with home/python.exe; venv/alias takeover refused")
+        return str(base)
+    return discover_command(None, "PYTHON_EXE", "python")
+
+
+def omp_environment(p: dict) -> dict:
+    env = os.environ.copy()
+    for key in tuple(env):
+        if key.startswith(("ANTHROPIC_", "OPENAI_", "COPILOT_", "GITHUB_", "GH_", "BROKER_", "DISCORD_")) or key in {"PI_CONFIG_FILES", "NODE_OPTIONS", "BUN_OPTIONS", "CLAUDE_CONFIG_DIR"}:
+            env.pop(key)
+    # Bind public directory discovery to the actual token profile, not inherited HOME.
+    env["HOME"] = env["USERPROFILE"] = p["UserRoot"]
+    if "OmpAgentRoot" in p:
+        env["PI_CODING_AGENT_DIR"] = p["OmpAgentRoot"]
+    if "OmpProfile" in p:
+        env["OMP_PROFILE"] = env["PI_PROFILE"] = p["OmpProfile"]
+    return env
+
+
+def omp_entry(p: dict, entry: Any) -> dict:
+    require(isinstance(entry, dict) and set(entry) <= {"command", "args", "type", "env", "envPolicy", "envLiteralKeys"} and entry.get("type", "stdio") == "stdio", "Foreign/conflicting omp-relay registration")
+    python = str(absolute(entry.get("command", "")))
+    args = entry.get("args")
+    require(isinstance(args, list) and args and all(isinstance(item, str) for item in args) and Path(args[0]) == Path(p["InstallRoot"]) / "omp_relay_mcp.py", "Foreign omp-relay entrypoint/root; no takeover allowed")
+    fields = {}
+    require(len(args) % 2 == 1, "Invalid omp-relay argument pairs")
+    for index in range(1, len(args), 2):
+        key, value = args[index:index + 2]
+        require(key in {"--state-root", "--runtime-root", "--broker-url"} and key not in fields, "Unknown/duplicate omp-relay coordinate")
+        fields[key] = value
+    env = entry.get("env", {})
+    require(isinstance(env, dict) and set(env) <= {"OMP_RELAY_STATE_ROOT", "OMP_RELAY_RUNTIME_ROOT", "BROKER_BASE_URL"} and all(isinstance(value, str) for value in env.values()), "Only bound nonsecret relay environment inputs may be adopted")
+    require(entry.get("envPolicy", "literal") == "literal" and ("envLiteralKeys" not in entry or isinstance(entry["envLiteralKeys"], list) and set(entry["envLiteralKeys"]) == set(env)), "Dynamic omp-relay environment inputs cannot be adopted")
+    resolved = {"OmpPythonExe": python}
+    for key, flag, variable in (("RelayStateRoot", "--state-root", "OMP_RELAY_STATE_ROOT"), ("RelayRuntimeRoot", "--runtime-root", "OMP_RELAY_RUNTIME_ROOT")):
+        value = fields.get(flag, env.get(variable))
+        require(bool(value), f"Existing omp-relay registration is missing {key}")
+        path = absolute(value)
+        require(variable not in env or Path(env[variable]) == path, f"Conflicting omp-relay {key}")
+        no_links(path)
+        require(path.is_dir() and within(path, Path(p["UserRoot"])), f"Existing {key} must be an existing private same-user directory; no replacement identity")
+        resolved[key] = str(path)
+    url = f"http://127.0.0.1:{p['Port']}"
+    require(fields.get("--broker-url", env.get("BROKER_BASE_URL", "http://127.0.0.1:8787")).rstrip("/") == url and ("BROKER_BASE_URL" not in env or env["BROKER_BASE_URL"].rstrip("/") == url), "Existing OMP broker URL conflicts with selected port")
+    for key, value in resolved.items():
+        require(key not in p or Path(p[key]) == Path(value), f"Conflicting retained/selected {key}; no identity relocation")
+    return resolved
+
+
+def discover_omp(p: dict, *, retained: bool = False) -> bool:
+    p["OmpCommand"] = discover_command(p.get("OmpCommand"), "OMP_COMMAND", "omp")
+    if "OmpProfile" not in p:
+        profile = "" if retained else os.environ.get("OMP_PROFILE", os.environ.get("PI_PROFILE", "")).strip()
+        p["OmpProfile"] = "" if profile == "default" else profile
+    profile = p["OmpProfile"]
+    require(isinstance(profile, str) and (not profile or re.fullmatch(r"[a-z0-9][a-z0-9._-]{0,63}", profile) and not profile.endswith(".") and not re.match(r"(?i)^(CON|PRN|AUX|NUL|COM[0-9]|LPT[0-9])(?:\.|$)", profile)), "Invalid OmpProfile")
+    if "OmpAgentRoot" not in p:
+        prefix = ["--profile", profile] if profile else []
+        result = command([p["OmpCommand"], *prefix, "config", "path"], env=omp_environment(p), cwd=Path(p["UserRoot"]))
+        agent = absolute(result.stdout.strip())
+        require(within(agent, Path(p["UserRoot"])), "OMP config path returned a foreign account root")
+        no_links(agent)
+        require(agent.is_dir(), "OMP config path must select an existing installed agent directory")
+        owned(agent)
+        p["OmpAgentRoot"] = str(agent)
+    agent = omp_agent(p)
+    require(within(agent, Path(p["UserRoot"])), "OmpAgentRoot must belong to the invoking profile")
+    no_links(agent)
+    require(agent.is_dir(), "OMP selection requires an existing actual agent directory")
+    owned(agent)
+    path = omp_agent(p) / "mcp.json"
+    data = load(path) if path.exists() else {}
+    require(isinstance(data, dict) and isinstance(data.get("mcpServers", {}), dict), "Invalid existing OMP MCP configuration")
+    entry = data.get("mcpServers", {}).get("omp-relay")
+    if entry is not None:
+        p.update(omp_entry(p, entry))
+    retained_entry = integration_inputs(p).get("omp")
+    if retained_entry is not None:
+        require(entry is None or entry == retained_entry, "Retained/live omp-relay registration conflict; no identity reconciliation")
+        p.update(omp_entry(p, retained_entry))
+    if "OmpPythonExe" not in p:
+        candidates = []
+        for namespace in ("skills-runtime", "agent-skills"):
+            path = Path(p["UserRoot"]) / ".agents" / namespace / "runtime.json"
+            if path.exists():
+                data = load(path)
+                require(isinstance(data, dict) and isinstance(data.get("tokens", {}), dict), "Invalid local OMP runtime configuration")
+                candidate = data.get("tokens", {}).get("__OMP_PYTHON__")
+                if candidate:
+                    candidates.append(str(absolute(candidate)))
+        require(len({os.path.normcase(item) for item in candidates}) <= 1, "Conflicting local OMP base-Python inputs")
+        p["OmpPythonExe"] = discover_command(candidates[0] if candidates else os.environ.get("OMP_PYTHON_EXE") or p["PythonExe"], "OMP_PYTHON_EXE", "python")
+    return discover_omp_roots(p, registered=entry is not None or retained_entry is not None, retained=retained)
+
+
+def discover_omp_roots(p: dict, *, registered: bool, retained: bool) -> bool:
+    user, root, agent = Path(p["UserRoot"]), Path(p["InstallRoot"]), omp_agent(p)
+    evidence = []
+    if registered or retained and any(key in p for key in ("RelayStateRoot", "RelayRuntimeRoot")):
+        evidence.append("retained/current relay identity")
+    for path in (*(root / name for name in ("omp_relay_mcp.py", "omp_relay_extension.ts", "requirements-omp-mcp.txt")), agent / "extensions/omp_relay_extension.ts"):
+        no_links(path)
+        if path.exists():
+            evidence.append(str(path))
+    namespace = user / ".omp-relay"
+    no_links(namespace)
+    if namespace.exists():
+        require(namespace.is_dir(), "Existing relay identity namespace must be a directory")
+        evidence.append(str(namespace))
+    configuration = yaml_document(agent / "config.yml", p["OmpPythonExe"])
+    extensions = configuration.get("extensions", [])
+    require(isinstance(extensions, list) and all(isinstance(item, str) for item in extensions), "Invalid OMP extensions setting")
+    servers = configuration.get("mcpServers", {})
+    require(isinstance(servers, dict), "Invalid OMP MCP configuration setting")
+    if any(Path(item).name == "omp_relay_extension.ts" for item in extensions) or "omp-relay" in servers:
+        evidence.append(str(agent / "config.yml"))
+    # Runtime declarations are Python inputs, not authority to guess identities.
+    # Recognize finite relay markers; unknown/missing coordinates remain a refusal.
+    def relay_marker(value: Any) -> bool:
+        if isinstance(value, dict):
+            return any(key in {"omp-relay", "OMP_RELAY_STATE_ROOT", "OMP_RELAY_RUNTIME_ROOT", "RelayStateRoot", "RelayRuntimeRoot"} or relay_marker(item) for key, item in value.items())
+        if isinstance(value, list):
+            return any(relay_marker(item) for item in value)
+        return isinstance(value, str) and (value == "omp-relay" or Path(value).name in {"omp_relay_extension.ts", "omp_relay_mcp.py"})
+    for distribution in ("skills-runtime", "agent-skills"):
+        path = user / ".agents" / distribution / "runtime.json"
+        if path.exists() and relay_marker(load(path)):
+            evidence.append(str(path))
+    for key, variable, name in (("RelayStateRoot", "OMP_RELAY_STATE_ROOT", "state"), ("RelayRuntimeRoot", "OMP_RELAY_RUNTIME_ROOT", "runtime")):
+        if variable in os.environ and not (retained and key in p):
+            supplied = absolute(os.environ[variable])
+            require(key not in p or Path(p[key]) == supplied, f"Environment {variable} conflicts with selected/retained identity")
+            p.setdefault(key, str(supplied))
+            evidence.append(variable)
+        p.setdefault(key, str(namespace / name))
+        path = absolute(p[key])
+        no_links(path)
+        if path.exists():
+            require(path.is_dir(), f"Existing {key} must be a directory")
+            evidence.append(str(path))
+    if evidence:
+        require(all(Path(p[key]).is_dir() for key in ("RelayStateRoot", "RelayRuntimeRoot")), "Prior OMP relay identity evidence requires both observed existing state/runtime roots; refusing replacement identity: " + ", ".join(evidence))
+    return bool(evidence)
 
 
 def read_env(path: Path) -> dict[str, str]:
@@ -453,8 +632,16 @@ def verify_retained(receipt: dict) -> None:
             expected[str(native)] = (row["sha256"], row["mode"])
     expected[str(closure / "release.json")] = (digest(encode(release)), "100644")
     expected[str(closure.parent / "connection.json")] = (digest(encode({"schema_version": 1, "broker_url": f"http://127.0.0.1:{p['Port']}"})), "100644")
-    if "claude" in p["Harness"]:
-        expected[str(closure.parent / "integrations.json")] = (digest(encode({"schema_version": 1, "claude": claude_contribution(p)})), "100644")
+    integrations_path = closure.parent / "integrations.json"
+    if "claude" in p["Harness"] or any(row["path"] == str(integrations_path) for row in receipt["files"]):
+        inputs = integration_inputs(p)
+        require(set(inputs) - {"schema_version"} <= set(p["Harness"]) and ("claude" not in p["Harness"] or "claude" in inputs), "Retained registration input population conflicts with selection")
+        projected = {"schema_version": 1}
+        if "claude" in inputs:
+            projected["claude"] = claude_contribution(p)
+        if "omp" in inputs:
+            projected["omp"] = omp_contribution(p)
+        expected[str(integrations_path)] = (digest(encode(projected)), "100644")
     actual = {row["path"]: (row["sha256"], row["mode"]) for row in receipt["files"]}
     require(all(actual.get(path) == binding for path, binding in expected.items()), "Installed immutable population differs from retained source projection")
     require(all(path in expected or within(Path(path), Path(p["InstallRoot"]) / ".venv") for path in actual), "Installed receipt claims undeclared files")
@@ -467,9 +654,10 @@ def interpreter(path: str, *, omp: bool = False) -> dict:
     exe = absolute(path)
     no_links(exe, leaf_file=True)
     require(exe.is_file(), "PythonExe must select an existing base Python 3.12 interpreter")
-    code = "import json,sys,venv,ensurepip;print(json.dumps({'version':list(sys.version_info[:2]),'base':sys.prefix==sys.base_prefix,'executable':sys.executable}))"
+    code = "import json,sys,venv,ensurepip;print(json.dumps({'version':list(sys.version_info[:2]),'base':sys.prefix==sys.base_prefix,'executable':sys.executable,'prefix':sys.prefix}))"
     data = json.loads(command([str(exe), "-I", "-B", "-c", code]).stdout)
     require(data["version"] == [3, 12] and data["base"], "An existing base Python 3.12 interpreter is required (not a venv)")
+    require(absolute(data["executable"]) == exe and absolute(data["prefix"]) == exe.parent, "Selected base Python executable/prefix differs from its declared directory; aliases are refused")
     if omp:
         command([str(exe), "-I", "-B", "-c", "import mcp,httpx,cryptography,yaml"])
     return data
@@ -485,11 +673,8 @@ def yaml_document(path: Path, python: str) -> dict:
 
 def claude_contribution(p: dict) -> dict:
     expected = {"command": str(Path(p["InstallRoot"]) / ".venv/Scripts/python.exe"), "args": [str(Path(p["UserRoot"]) / ".claude/plugins/local-relay-channel/server.py")]}
-    inputs = Path(p["UserRoot"]) / ".agents/installations/agent-messaging/integrations.json"
-    if inputs.exists():
-        value = load(inputs)
-        closed(value, {"schema_version", "claude"}, "local registration inputs")
-        require(value["schema_version"] == 1, "Invalid local registration inputs")
+    value = integration_inputs(p)
+    if "claude" in value:
         selected = closed(value["claude"], {"command", "args"}, "Claude registration inputs")
         require(selected["command"] in {expected["command"], p["PythonExe"]} and selected["args"] == expected["args"], "Local Claude interpreter/root input conflict")
         return selected
@@ -524,7 +709,33 @@ def claude_registration(p: dict) -> tuple[Path, bool]:
 
 
 def omp_contribution(p: dict) -> dict:
+    retained = integration_inputs(p).get("omp")
+    if retained is not None:
+        omp_entry(p, retained)
+        return retained
+    target = omp_agent(p) / "mcp.json"
+    if target.exists():
+        existing = load(target).get("mcpServers", {}).get("omp-relay")
+        if existing is not None:
+            omp_entry(p, existing)
+            return existing
     return {"command": p["OmpPythonExe"], "args": [str(Path(p["InstallRoot"]) / "omp_relay_mcp.py"), "--state-root", p["RelayStateRoot"], "--runtime-root", p["RelayRuntimeRoot"], "--broker-url", f"http://127.0.0.1:{p['Port']}"], "type": "stdio"}
+
+
+def integration_inputs(p: dict) -> dict:
+    path = Path(p["UserRoot"]) / ".agents/installations/agent-messaging/integrations.json"
+    value = load(path) if path.exists() else {"schema_version": 1}
+    require(isinstance(value, dict) and set(value) <= {"schema_version", "claude", "omp"} and value.get("schema_version") == 1, "Invalid local registration inputs")
+    return value
+
+
+def integration_contribution(p: dict) -> dict:
+    value = {"schema_version": 1}
+    if "claude" in p["Harness"]:
+        value["claude"] = claude_contribution(p)
+    if "omp" in p["Harness"]:
+        value["omp"] = omp_contribution(p)
+    return value
 
 
 def omp_agent(p: dict) -> Path:
@@ -596,8 +807,9 @@ def output_plan(bundle: Path, rows: dict[str, dict], p: dict, prior: dict | None
     meta = user / ".agents/installations/agent-messaging"
     desired[meta / "connection.json"] = (encode({"schema_version": 1, "broker_url": f"http://127.0.0.1:{p['Port']}"}), "100644", "generated/connection.json")
     if "claude" in p["Harness"]:
-        require(prior is not None or not claude_registration(p)[1] or p.get("_adopt", False), "Existing Claude registration requires AdoptExisting")
-        desired[meta / "integrations.json"] = (encode({"schema_version": 1, "claude": claude_contribution(p)}), "100644", "generated/integrations.json")
+        require(prior is not None or not claude_registration(p)[1] or p.get("_adopt", False), "Existing Claude registration requires a recognizable same-user installation")
+    if set(p["Harness"]) & {"claude", "omp"}:
+        desired[meta / "integrations.json"] = (encode(integration_contribution(p)), "100644", "generated/integrations.json")
     for name in sorted(STATIC):
         desired[meta / "verifier" / name] = ((bundle / name).read_bytes(), rows[name]["mode"], name)
     for target, (data, mode, source) in desired.items():
@@ -607,7 +819,7 @@ def output_plan(bundle: Path, rows: dict[str, dict], p: dict, prior: dict | None
         elif previous is not None:
             allowed = adoption.get("files", {}).get(source, [])
             require(previous == digest(data) or previous in allowed, f"Foreign same-name file refused: {target}")
-            require(p.get("_adopt", False), f"Existing installation requires explicit AdoptExisting: {target}")
+            require(p.get("_adopt", False), f"Existing files require a recognizable same-user installation: {target}")
         writes.append(Write(target, data, previous, mode))
     retirement = load(bundle / "deploy/retirements.json")
     closed(retirement, {"schema_version", "files"}, "retirement declaration")
@@ -631,7 +843,7 @@ def output_plan(bundle: Path, rows: dict[str, dict], p: dict, prior: dict | None
 
 def prepare_omp(p: dict, work: Path) -> list[Write]:
     for key in ("OmpCommand", "OmpAgentRoot", "OmpPythonExe", "RelayStateRoot", "RelayRuntimeRoot"):
-        require(key in p and bool(p[key]), f"OMP selection requires explicit {key}")
+        require(key in p and bool(p[key]), f"Missing observed OMP prerequisite: {key}")
     interpreter(p["OmpPythonExe"], omp=True)
     agent = omp_agent(p)
     require(within(agent, Path(p["UserRoot"])), "OmpAgentRoot must belong to invoking profile")
@@ -929,6 +1141,21 @@ def installation_outcome(prior: dict | None, installed_files: list[dict], *, rec
     return ("installed" if code_changed else "reconciled" if reconciled else "verified-no-op", timestamp, code_changed)
 
 
+def recognizable_installation(bundle: Path, rows: dict[str, dict], p: dict, adoption: dict) -> bool:
+    root = Path(p["InstallRoot"])
+    if not root.exists() or not any(root.iterdir()):
+        return False
+    require((root / "broker.env").is_file(), "Existing broker requires private broker.env; state coordinates cannot be guessed")
+    for name in ("broker/server.py", "broker/broker/schema.sql"):
+        target = selected_destination(name, p)
+        require(name in rows and target is not None and target.is_file(), "Not a recognizable bound broker installation")
+        no_links(target, leaf_file=True)
+        allowed = adoption.get("files", {}).get(name, [])
+        current = sha(target)
+        require(current == rows[name]["sha256"] or current in allowed, f"Foreign/edited legacy broker anchor: {target}")
+    return True
+
+
 def run(options: dict, *, actual_profile: Path | None = None) -> dict:
     mode = options.get("Mode", "Install")
     user = absolute(options["UserRoot"])
@@ -944,19 +1171,24 @@ def run(options: dict, *, actual_profile: Path | None = None) -> dict:
     p = resolve_parameters(options, prior)
     work = absolute(options["WorkRoot"])
     validate_roots(p, work, actual_profile=actual_profile)
+    existing_omp_identity = False
+    if mode != "Verify":
+        interpreter(p["PythonExe"])
+        if "omp" in p["Harness"]:
+            existing_omp_identity = discover_omp(p, retained=bool(prior))
+            validate_roots(p, work, actual_profile=actual_profile)
     if prior:
         verify_files(prior)
         verify_retained(prior)
         verify_configuration(prior["parameters"], prior["configuration_paths"])
     if mode == "Verify":
-        require(not options.get("Activate") and not options.get("AdoptExisting"), "Verify is read-only")
+        require(not options.get("Activate"), "Verify is read-only")
         require(prior is not None, "Missing retained installation; Verify does not repair")
         require(prior["version"] == options["Version"], "Expected version differs from installed version")
         verify_configuration(p, prior["configuration_paths"])
         retained = load(meta / "verifier/release.json")
         require(retained["source_commit"] == prior["source_commit"] and retained["archive_sha256"] == prior["archive_sha256"], "Retained package binding differs from installed receipt")
         return {"status": "verified", "version": prior["version"], "activation": "not-observed", "files": len(prior["files"])}
-    interpreter(p["PythonExe"])
     bundle = absolute(options["BundleDir"])
     release = load(absolute(options["ReleaseReceipt"]))
     rows = validate_release(bundle, release, options["Version"])
@@ -970,15 +1202,12 @@ def run(options: dict, *, actual_profile: Path | None = None) -> dict:
     adoption = load(bundle / "deploy/adoption.json")
     closed(adoption, {"schema_version", "files"}, "adoption declaration")
     require(adoption["schema_version"] == 1, "Invalid adoption declaration")
-    existing = Path(p["InstallRoot"]).exists() and any(Path(p["InstallRoot"]).iterdir())
-    if prior is None and existing:
-        require(options.get("AdoptExisting", False), "Existing recognizable installation requires AdoptExisting")
-        require((Path(p["InstallRoot"]) / "server.py").is_file() and (Path(p["InstallRoot"]) / "broker/schema.sql").is_file(), "Not a recognizable broker installation")
-        require((Path(p["InstallRoot"]) / "broker.env").is_file(), "Adoption requires existing private broker.env; no guessed state coordinates")
-        if "omp" in p["Harness"]:
-            require(all(key in options for key in ("RelayStateRoot", "RelayRuntimeRoot")), "OMP adoption requires explicit existing state/runtime roots")
-            require(all(Path(p[key]).is_dir() for key in ("RelayStateRoot", "RelayRuntimeRoot")), "OMP adoption cannot initialize replacement identity roots")
-    p["_adopt"] = bool(options.get("AdoptExisting"))
+    adopt = False
+    if prior is None:
+        adopt = recognizable_installation(bundle, rows, p, adoption)
+        if "omp" in p["Harness"] and (Path(p["InstallRoot"]) / "omp_relay_mcp.py").exists():
+            require(all(Path(p[key]).is_dir() for key in ("RelayStateRoot", "RelayRuntimeRoot")), "Legacy OMP adoption needs observed existing state/runtime roots; no replacement identity")
+    p["_adopt"] = adopt
     writes = output_plan(bundle, rows, p, prior, adoption)
     p.pop("_adopt")
     # Configuration planning/CLI calls operate exclusively in WorkRoot, never the live agent directory.
@@ -1021,7 +1250,7 @@ def run(options: dict, *, actual_profile: Path | None = None) -> dict:
         require(sys.stdin.isatty(), "Activate requires an interactive operation-specific confirmation")
         require(input("Type the displayed line exactly to confirm: ") == displayed, "Activation not confirmed")
     wheels = wheelhouse(bundle, p, operation) if dependency_change else None
-    before_environment, dependency_names, previous_environment = dependency_preflight(wheels, p, prior, bool(options.get("AdoptExisting"))) if wheels else (set(), set(), set())
+    before_environment, dependency_names, previous_environment = dependency_preflight(wheels, p, prior, adopt) if wheels else (set(), set(), set())
     release_target = meta / "verifier/release.json"
     release_write = Write(release_target, encode(release), sha(release_target) if release_target.exists() else None)
     all_writes = writes + configs + [release_write]
@@ -1034,9 +1263,9 @@ def run(options: dict, *, actual_profile: Path | None = None) -> dict:
             no_links(path)
     meaningful = [w for w in all_writes if w.data is None or w.old_hash != digest(w.data)]
     if prior and not meaningful and not dependency_change and p == prior["parameters"] and not options.get("Activate"):
-        return {"status": "verified-no-op", "version": options["Version"], "activation": "not-observed", "files": len(prior["files"])}
+        return {"status": "verified-no-op", "version": options["Version"], "work_root": str(work), "operation": str(operation), "backups": None, "activation": "not-observed", "files": len(prior["files"])}
     if mode == "Check":
-        return {"status": "checked", "version": options["Version"], "write_paths": [str(w.path) for w in all_writes if w.data is None or w.old_hash != digest(w.data)], "activation": "not-requested", "harness": p["Harness"]}
+        return {"status": "checked", "version": options["Version"], "write_paths": [str(w.path) for w in all_writes if w.data is None or w.old_hash != digest(w.data)], "work_root": str(work), "operation": str(operation), "backups": None, "activation": "not-requested", "harness": p["Harness"]}
     require(mode == "Install", "Unknown operation")
     # Complete preflight succeeded. Every live mutation below is individually atomic where applicable.
     effects: list[str] = []
@@ -1049,6 +1278,10 @@ def run(options: dict, *, actual_profile: Path | None = None) -> dict:
             verify_files(prior)
         require(configuration_snapshot(p) == snapshot, "Configuration changed after preflight")
         require(listener(p["Port"], Path(p["InstallRoot"])) == before, "Listener changed after preflight")
+        if existing_omp_identity:
+            for key in ("RelayStateRoot", "RelayRuntimeRoot"):
+                no_links(Path(p[key]))
+                require(Path(p[key]).is_dir(), f"Existing {key} disappeared after preflight; refusing replacement identity")
         if before and options.get("Activate"):
             exe = str(native_powershell())
             effects.append(f"stop requested for PID {before['pid']}")
@@ -1095,6 +1328,8 @@ def run(options: dict, *, actual_profile: Path | None = None) -> dict:
         installed = {"schema_version": 1, "component": COMPONENT, "repository": REPOSITORY, "version": options["Version"], "source_commit": release["source_commit"], "archive_sha256": release["archive_sha256"], "parameters": p, "files": installed_files, "configuration_paths": sorted(snapshot), "held_paths": [], "last_code_change_utc": timestamp}
         verify_files(installed)
         validate_installed(installed, user)
+        verify_retained(installed)
+        verify_configuration(installed["parameters"], installed["configuration_paths"])
         backup(receipt_path, backups, kind="configuration")
         atomic(receipt_path, encode(installed), private=True)
         stamped = True
@@ -1102,9 +1337,9 @@ def run(options: dict, *, actual_profile: Path | None = None) -> dict:
         if options.get("Activate"):
             # The prior process was already stopped before changing its executable code.
             activation = activate(p, before, effects)
-        return {"status": status, "version": options["Version"], "backups": str(backups), "activation": activation, "effects": effects}
+        return {"status": status, "version": options["Version"], "verification": "verified", "harness": p["Harness"], "work_root": str(work), "operation": str(operation), "backups": str(backups), "activation": activation, "effects": effects}
     except BaseException as exc:
-        diagnostic = {"status": "activation-failure" if stamped else "partial-failure", "error": str(exc), "possible_effects": effects, "backups": str(backups), "installed_bytes_recorded": stamped, "operation_success": False}
+        diagnostic = {"status": "activation-failure" if stamped else "partial-failure", "error": str(exc), "possible_effects": effects, "work_root": str(work), "operation": str(operation), "backups": str(backups), "installed_bytes_recorded": stamped, "operation_success": False}
         diagnostic["backup_map"] = load(backups / "operation.json").get("backup_map", [])
         atomic(backups / "failure.json", encode(diagnostic), private=True)
         print(json.dumps(diagnostic), file=sys.stderr, flush=True)

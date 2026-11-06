@@ -26,3 +26,34 @@ For the real built-package installation lane set `AGENT_MESSAGING_TEST_BUNDLE`, 
 For actual OMP public-config projection set `AGENT_MESSAGING_TEST_OMP_COMMAND` and `AGENT_MESSAGING_TEST_OMP_PYTHON` explicitly. For installed `python -m broker` and console loopback write/read/dashboard smoke, set `AGENT_MESSAGING_TEST_INSTALLED_ROOT` to a real owned disposable installation and run `test_package_loopback.py`. Smoke processes use ephemeral loopback ports, explicit synthetic state, unrelated cwd, no notification credentials and stop only their owned PID. Existing source-only flat-package smoke remains separate.
 
 OMP extension suites require the real selected OMP dependency installation via `BROKER_TEST_OMP_NODE_MODULES`. A fresh harness MCP initialize/tools-list/read-only check against an owned fixture remains a separate integration gate. No source test proves actual production activation, auth, autostart or real target-account readiness.
+
+## Simple installer integration gates
+
+The implementation worker does not run these gates. Rebuild the real release after committing the changed frontdoor/backend/runbook; the existing explicit declaration already contains that entire closure, so no new package member or second installer engine is needed.
+
+Run the file/adoption/discovery fixtures and actual OMP default/named-profile config-path cases:
+
+```powershell
+$env:AGENT_MESSAGING_TEST_OMP_COMMAND = '<actual-existing-omp-command>'
+$env:AGENT_MESSAGING_TEST_OMP_PYTHON = '<actual-base-python-with-OMP-MCP-dependencies>'
+& $Python -B -m pytest -q tests/test_installer_restart_deferral.py tests/test_installer_omp_selection.py
+```
+
+The optional public-API tests initialize only owned synthetic config/profile fixtures; they do not launch sessions/models or mutate a production registration. They compare discovery to the actual `omp [--profile <fixture>] config path` output, never an expected inferred directory layout. The ordinary package fixture still needs `AGENT_MESSAGING_TEST_BUNDLE`, `AGENT_MESSAGING_TEST_RECEIPT`, and `AGENT_MESSAGING_TEST_BASE_PYTHON`; it now requires Install's independent verification result as well as separate Verify after deleting downloads. Its account/listener interceptions remain explicit, not actual Windows-account proof.
+
+Root-preflight fixtures refuse unsafe UserRoot/WorkRoot/InstallRoot before either Python prerequisite execution or OMP discovery. Windows legacy-venv fixtures derive home/python.exe, probe the real supported base, and refuse conflicting venv/alias/other-base metadata without executing it. The optional profile fixture uses config set only to initialize its owned synthetic test profile; production discovery itself issues only the public read-only config path query. Parent integration should compare fixture files/directories before/after that query for both default and named profiles.
+
+For end-to-end frontdoor/account/latest/handoff checks use a **disposable Windows account/VM** with real installed prerequisites and no production product receipt/listener. The frontdoor intentionally cannot redirect its fixed metadata namespace to a spoofed HOME. Save the revised released frontdoor A, run `& ./install.ps1` with no options, inspect the retained resolved version/Python/Harness/port/roots, and run `& ./install.ps1 -Mode Verify` after removing downloads (not backups). In another fresh fixture with no harness executable, require service-only success. Invalid PYTHON_EXE/non-base Python, foreign OMP config-path root, edited legacy code and foreign/disabled MCP entries must refuse before live writes. Known-byte legacy adoption must preserve private broker.env, DB/WAL, state roots, Codex SessionKey files, parent junctions and unrelated configuration, with real backup mappings for overwritten files.
+
+Publish a second real descendant stable release B with a deliberately changed committed frontdoor. Invoke the **unchanged saved A script** without options: require verified one-hop execution of B, B's installed receipt and independent Verify, and unchanged A bytes. Exercise pinned downgrade/source divergence, wrong asset/archive/member/source bindings, tampering and changed B bindings during handoff; each must refuse without bypass, recursive handoff or successful-install stamp. A marker is only a bound recursion guard, never a trust shortcut.
+
+Installed broker write/read/dashboard smoke:
+
+```powershell
+$env:AGENT_MESSAGING_TEST_INSTALLED_ROOT = '<real-owned-disposable-installed-broker-root>'
+& $Python -B -m pytest -q tests/test_package_loopback.py
+```
+
+This runs the installed venv's `python -m broker` and `agent-messaging.exe` from unrelated disposable runtime cwd, chooses ephemeral loopback ports and synthetic DB/audit/message paths, verifies `/api/health` SQLite/actual DB, POST `/api/event` → recipient GET roundtrip and HTML dashboard, and stops only its owned process. Never point it at a production installation/state.
+
+Separately launch fresh selected Claude/Codex/OMP fixture sessions against an owned disposable broker. Require real MCP initialize/tools-list and native read-only relay-check, not installation/parser success. Claude uses the actual retained registered interpreter/plugin; Codex uses the installed session launcher with explicit private StateDirectory/SessionKey and creates no global entry; OMP uses the discovered fixture agent/profile and its retained base Python/state/runtime roots with `mcp__omp_relay_check`. Compare unrelated config, junctions and identity files before/after and preserve Codex resume coordinates. Production activation, existing-peer consent and legacy relative-process refusal remain separate user-authorized gates.

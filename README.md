@@ -20,44 +20,50 @@ Read [operations](docs/operations.md), [architecture](docs/architecture.md), [re
 
 ## Prerequisites and boundaries
 
-The scripted installer supports **Windows PowerShell 5.1+**, the actual invoking user's profile, and an existing **base Python 3.12** with pip/venv/ensurepip. It never installs Python, a harness, Bun, Node, or machine policy. Codex's session launcher requires **PowerShell 7**. Select only harnesses already installed. No hook activation, enterprise channel policy or organization entitlement setup is included.
+The scripted installer supports **Windows PowerShell 5.1+**, the actual invoking Windows user's profile, and an existing **base Python 3.12** with pip/venv/ensurepip. On a fresh installation it discovers Python from optional `-PythonExe`, then `PYTHON_EXE`, then PATH `python`/`python.exe`; invalid explicit/environment selections and venvs refuse rather than falling through to another interpreter. Updates retain the installed interpreter. For a recognizable legacy venv, the base is specifically `<pyvenv.cfg home>/python.exe`; optional `executable` metadata must agree with that path, and the actual version/base/executable/prefix probe must match. Inconsistent metadata, aliases, a missing declared base or a nested-venv executable refuse; no alternate interpreter is guessed or repaired. It never installs Python, a harness, Bun, Node, or machine policy. Codex's session launcher requires **PowerShell 7**. No hook activation, enterprise channel policy or organization entitlement setup is included.
 
-For OMP, explicitly select its existing public CLI, actual selected agent directory, base Python and two private, separate state/runtime directories. The selected OMP Python must already have the dependencies in `requirements-omp-mcp.txt` (`mcp`, `httpx`, `cryptography`, `PyYAML`); this installer does not modify a shared base interpreter. OMP's ordinary upstream/package-manager updates are independent. `OmpProfile` is optional and is never defaulted to a private profile. `OmpAgentRoot` is the actual agent directory for that profile, not a parent from which the installer guesses a profile layout.
+Available Claude, Codex and OMP executables are discovered locally on first install. With no supported harness installed, the fresh service-only installation is valid. OMP discovery uses its existing command (`-OmpCommand`, `OMP_COMMAND`, then PATH `omp`) and public **`config path`** API to obtain the actual selected current-user agent directory. `OMP_PROFILE` takes precedence over `PI_PROFILE`, including an empty/default selection; `PI_CODING_AGENT_DIR` is respected. No `multi_machine` profile or guessed profile layout is required. The existing `omp-relay` declaration supplies its base Python and private state/runtime roots when present. Otherwise an observed local runtime.json OMP interpreter, `OMP_PYTHON_EXE`, or the selected broker base Python is used, and fresh roots default to `.omp-relay/state` and `.omp-relay/runtime` below the actual profile. The selected OMP Python must already have `mcp`, `httpx`, `cryptography`, and `PyYAML` (`requirements-omp-mcp.txt`); a shared base interpreter is not modified. Missing, unsafe, conflicting or disabled existing inputs still refuse.
+
+Discovery selects installed executable candidates, not a promise that every adapter is usable. If an auto-selected harness has missing/unsafe prerequisites (for example OMP with no actual agent directory or missing base-Python dependencies), the complete installation refuses before live writes rather than silently skipping that adapter. On a **fresh** installation, use `-Harness @('claude','codex')` to exclude an unavailable OMP adapter, another supported subset, or `-Harness @('none')` for service-only. Retained selections on updates are not implicitly removed by narrowing or omission; restore their genuine prerequisites instead. Immediately knowable user/work/install paths are validated before external Python/OMP discovery. OMP's `config path` is a read-only directory query; live discovery never uses `config set`. Typed config-set projection happens only against isolated WorkRoot copies.
 
 Core Python source can be used on other supported Python platforms; the POSIX launcher and systemd operator are explicit source-use utilities, **not a tested Linux/macOS harness installer**.
 
-## Exact-version install or upgrade
+## Install or update locally
 
-Choose an exact published release tag and an absolute user-owned WorkRoot outside source, installation and state. Download **that release's `install.ps1` asset** through GitHub Releases. Do not pipe downloaded text into `iex`. A changed frontdoor requires explicitly downloading the new release script; the script never self-replaces. Public downloads require HTTPS, not private-repository access or a token.
-
-```powershell
-$Version = '<exact-release-tag>'
-$Work = Join-Path $env:USERPROFILE 'installer-work/agent-messaging-operation'
-$Python = '<absolute-existing-base-python.exe>'
-& ./install.ps1 -Version $Version -WorkRoot $Work -PythonExe $Python -Harness @('claude','codex') -Mode Check
-& ./install.ps1 -Version $Version -WorkRoot $Work -PythonExe $Python -Harness @('claude','codex') -Mode Install
-& ./install.ps1 -Version $Version -WorkRoot $Work -Mode Verify
-```
-
-Invoke the script directly for PowerShell arrays; do not pass a comma-containing native `-File` argument. `Harness @('none')` (fresh default) installs only the service; it cannot be combined with a harness. Omitted selectors preserve existing selections. Explicit additions expand their union; omission is not uninstall. `InstallRoot`, `PythonExe`, `Port` (fresh default 8787), `UserRoot` and OMP identity/root arguments must agree with the retained record on upgrades/Verify; state relocation is not an upgrade. Existing private `broker.env` supplies its port during explicit adoption and is never overwritten. There is no `latest`, downgrade or automatic retry.
-
-`Check` may download wheels/archive and use isolated WorkRoot config copies, but makes no live change. `Install` repeats complete preflight before its first live write. `Verify` is a separate **read-only, no-network** operation using retained metadata and actual installed files, even after download/extraction is removed. It does not start MCP servers, query a service, repair prerequisites or prove activation.
-
-OMP example (replace every placeholder with an existing validated local selection):
+Download the component frontdoor once, then run it locally to install or update the latest published **stable** release:
 
 ```powershell
-& ./install.ps1 -Version $Version -WorkRoot $Work -PythonExe $Python -Harness @('omp') `
-  -OmpCommand '<absolute-omp-command>' -OmpAgentRoot '<absolute-selected-agent-directory>' `
-  -OmpPythonExe '<absolute-existing-base-python.exe>' `
-  -RelayStateRoot (Join-Path $env:USERPROFILE '.omp-relay/state') `
-  -RelayRuntimeRoot (Join-Path $env:USERPROFILE '.omp-relay/runtime') -Mode Check
+Invoke-WebRequest -UseBasicParsing `
+  -Uri 'https://github.com/gupta-ash/agent-messaging/releases/latest/download/install.ps1' `
+  -OutFile ./install.ps1
+& ./install.ps1
+& ./install.ps1 -Mode Verify
 ```
 
-A fresh installation creates only these two explicitly selected private roots. Adoption requires both to exist, so it cannot silently regenerate session identity. The installer uses OMP's public typed config API against an isolated copy, then atomically merges only the selected extension and `mcpServers["omp-relay"]`. It preserves unrelated servers, lists, order, disabled entries and settings. A foreign same-name registration or disabled selected relay is a conflict, not permission to override it.
+There is no required version, work-directory, user/profile, Python or OMP coordinate matrix, source checkout, fleet-deployment package, staging checkout or remote coordinator. The actual OS user is automatic; another user's profile cannot be selected. Public HTTPS downloads need no private-repository access or token. Do not pipe remote text into `iex`.
+
+The saved frontdoor validates the resolved exact tag/full commit, archive checksum, exact source-bound members/modes and matching committed frontdoor asset. If the selected release has a newer frontdoor, it hands off **once** to those verified extracted bytes with the same selections and resolved exact version. The selected frontdoor independently repeats admission and rejects changed bindings or recursion. The saved/running script is never overwritten, and script mismatch is never bypassed.
+
+Optional controls:
+
+```powershell
+& ./install.ps1 -Mode Check                    # plan the latest stable release without live writes
+& ./install.ps1 -Version '<exact-release-tag>' # pin this operation, still refusing downgrade/source divergence
+& ./install.ps1 -Harness @('claude','codex')    # explicit selection or retained-selection additions
+& ./install.ps1 -Harness @('none')             # service-only on a fresh installation
+```
+
+Invoke the script directly for PowerShell arrays; do not pass a comma-containing native `-File` argument. Omitted selectors preserve existing selections; explicit additions expand their union and omission is not uninstall. `none` cannot be combined with a harness. `InstallRoot`, `PythonExe`, `Port` (fresh default 8787) and optional OMP coordinate flags must agree with retained selections on updates/Verify; root/state relocation is not an upgrade. Existing private `broker.env` supplies its port on adoption and is never overwritten. Advanced `-WorkRoot <absolute-owned-directory>` is optional; otherwise a fresh private operation directory is derived under the invoking account's LocalApplicationData, outside source/install/config/state roots. Downloads, extraction and child temp/cache/build activity stay there. Backups are retained, not automatically purged.
+
+A frontdoor handoff forwards the already resolved **same WorkRoot**; it does not select a second default. Each validation pass retains a separate `release-*` download/extraction directory there. The backend's private output identifies `work_root`, its `operation-*` temporary/build directory as `operation`, and the exact separate `backups-*` directory as `backups`. Preserve the returned backups and its operation/failure map; neither `release-*` directory is the recovery-backup directory. No directory is automatically purged after handoff.
+
+`Check` may download wheels/archive and use isolated WorkRoot config copies, but makes no live change. `Install` repeats complete preflight, writes only its owned selected surface and exercises the independent retained file/config verifier before reporting success. Separate **read-only, no-network** `Verify` uses the retained installed version when `Version` is omitted, even after downloads/extraction are removed. It does not repair prerequisites, start MCP servers, query a service or prove activation/native readiness.
+
+OMP configuration projection uses its public typed config API against an isolated copy, then atomically merges only the selected extension and `mcpServers["omp-relay"]`. The actual root/profile, base Python, existing state/runtime roots, entry shape and unrelated servers/lists/order/settings are retained. Before choosing fresh roots, discovery checks retained/current registrations, installed relay files, selected config/extensions, local runtime declarations, relay environment inputs and the existing `.omp-relay` namespace/selected directories. Any prior identity evidence requires both observed roots to exist; ambiguous/incomplete legacy identity refuses rather than silently creating replacements. Only a genuinely new relay with no such evidence may initialize fresh roots. A foreign same-name registration, conflicting selected root/port or disabled relay is a conflict, not permission to override it.
 
 ## Existing installations, ownership and recovery
 
-Use **`-AdoptExisting`** for the first takeover of recognizable same-user code without a new receipt. Prior code must match an explicit known source hash or selected payload; arbitrary same-name code/registrations are refused. Every overwritten owned file is privately backed up under the operation WorkRoot. Backups and failure diagnostics are retained preservation, not disposable extraction; their location is returned in private operation output. The private `operation.json`/`failure.json` map original paths to backups and code/configuration/environment kinds; only immutable code has old/candidate digest bindings. Do not purge them with downloads. Follow the [bounded manual code-only recovery procedure](deploy/RUNBOOK.md), never a wholesale configuration/venv/database restore.
+Recognizable **same-user** legacy broker installations are adopted automatically only when their broker/schema anchors and every overwritten selected file match declared known source hashes or selected payload bytes. There is no adoption override: absent/unrecognized anchors, edited code and foreign registrations still refuse. Private `broker.env`, interpreter, port and bound adapter state inputs are preserved. Every overwritten owned file is privately backed up under the operation WorkRoot. Backups/failure diagnostics are retained preservation, not disposable extraction; their location is returned in private operation output. `operation.json`/`failure.json` map original paths to backups and code/configuration/environment kinds; only immutable code has old/candidate digest bindings. Do not purge them with downloads. Follow the [bounded manual code-only recovery procedure](deploy/RUNBOOK.md), never a wholesale configuration/venv/database restore.
 
 Only explicit declaration members are installed, never a home-tree mirror. Locally edited immutable code is a conflict, including on the same version. Unknown neighbors, credentials, `broker.env`, DB/WAL/SHM/journals, logs, audit, sessions, stable IDs and Task Scheduler registrars are preserved. Obsolete code is removed only when explicitly hash-bound in `deploy/retirements.json`, previously owned and still unchanged. No database or automatic code rollback occurs after a partial failure.
 

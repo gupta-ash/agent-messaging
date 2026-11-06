@@ -1,22 +1,22 @@
 #requires -Version 5.1
 <#
 .SYNOPSIS
-Install or verify an exact public agent-messaging release for the invoking user.
+Install or verify a public agent-messaging release for the invoking user.
 .DESCRIPTION
 Check downloads only into WorkRoot. Verify is read-only and never downloads.
 Install never activates, registers autostart, or enables hooks by default.
 #>
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory=$true)][string]$Version,
-    [Parameter(Mandatory=$true)][string]$WorkRoot,
+    [string]$Version,
+    [string]$WorkRoot,
     [ValidateSet('Check','Install','Verify')][string]$Mode = 'Install',
-    [string]$UserRoot, [string]$InstallRoot, [string]$PythonExe,
+    [string]$InstallRoot, [string]$PythonExe,
     [ValidateSet('none','claude','codex','omp')][string[]]$Harness,
     [ValidateRange(1,65535)][int]$Port,
     [string]$OmpCommand, [string]$OmpAgentRoot, [string]$OmpProfile,
     [string]$OmpPythonExe, [string]$RelayStateRoot, [string]$RelayRuntimeRoot,
-    [switch]$AdoptExisting, [switch]$Activate
+    [switch]$Activate
 )
 # Match built-in modules to the executing shell even when launched from PS 7.
 # Restore the caller's process environment on every return/refusal/exit path.
@@ -87,11 +87,13 @@ function TreeDigest($Expected) {
     try { return ([BitConverter]::ToString($algorithm.ComputeHash([Text.Encoding]::UTF8.GetBytes($text.ToString())))).Replace('-','').ToLowerInvariant() }
     finally { $algorithm.Dispose() }
 }
-if ($Version -notmatch '^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$' -or $Version -in @('latest','HEAD','main','master')) { throw 'Version must be an exact release tag.' }
+if ($Version -and ($Version -notmatch '^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$' -or $Version -in @('latest','HEAD','main','master'))) { throw 'Version must be an exact release tag when supplied.' }
 $actualProfile=[Environment]::GetFolderPath('UserProfile')
-if (-not $UserRoot) { $UserRoot=$actualProfile }
-$UserRoot=Full $UserRoot
-if ($UserRoot -ine (Full $actualProfile)) { throw 'UserRoot must be the actual invoking account profile.' }
+$UserRoot=Full $actualProfile
+if (-not $WorkRoot) {
+    $local=Full ([Environment]::GetFolderPath('LocalApplicationData'))
+    $WorkRoot=Join-Path $local ('agent-messaging/installer-work/'+[guid]::NewGuid().ToString('N'))
+}
 $WorkRoot=Full $WorkRoot
 Plain $UserRoot; Plain $WorkRoot
 $metadata=Join-Path $UserRoot '.agents/installations/agent-messaging'
@@ -101,7 +103,10 @@ $cursor=$metadata
 while ($cursor -and (Contains $UserRoot $cursor)) { Owned $cursor; if ($cursor -ieq $UserRoot) { break }; $cursor=Split-Path -Parent $cursor }
 Owned $installed
 $prior=$null
-if (Test-Path -LiteralPath $installed) { $prior=Get-Content -Raw -LiteralPath $installed | ConvertFrom-Json }
+if (Test-Path -LiteralPath $installed) {
+    $prior=Get-Content -Raw -LiteralPath $installed | ConvertFrom-Json
+    if ($prior.component -cne $Component -or $prior.repository -cne $Repository -or $prior.parameters.UserRoot -ine $UserRoot) { throw 'Retained installation identity differs from the invoking user/product.' }
+}
 if (-not $InstallRoot) { if ($prior) { $InstallRoot=[string]$prior.parameters.InstallRoot } else { $InstallRoot=Join-Path $UserRoot '.agents/services/broker' } }
 $InstallRoot=Full $InstallRoot
 Plain $InstallRoot
@@ -116,10 +121,11 @@ if ($WorkRoot -match '(?i)[\\/](?:ash_src|\.agents|\.claude|\.codex|\.omp)(?:[\\
 if ($InstallRoot -match '(?i)[\\/](?:OneDrive|Dropbox|Google Drive)(?:[\\/]|$)' -or (Test-Path -LiteralPath (Join-Path $InstallRoot '.git'))) { throw 'InstallRoot cannot be a source checkout or sync folder.' }
 $arguments=[ordered]@{Version=$Version;WorkRoot=$WorkRoot;Mode=$Mode;UserRoot=$UserRoot;InstallRoot=$InstallRoot}
 foreach ($key in @('PythonExe','Harness','Port','OmpCommand','OmpAgentRoot','OmpProfile','OmpPythonExe','RelayStateRoot','RelayRuntimeRoot')) { if ($PSBoundParameters.ContainsKey($key)) { $arguments[$key]=$PSBoundParameters[$key] } }
-$arguments.AdoptExisting=[bool]$AdoptExisting; $arguments.Activate=[bool]$Activate
+$arguments.Activate=[bool]$Activate
 if ($Mode -eq 'Verify') {
-    if ($Activate -or $AdoptExisting) { throw 'Verify accepts no mutation consent switches.' }
+    if ($Activate) { throw 'Verify accepts no activation consent.' }
     if (-not $prior) { throw 'No retained installation exists; Verify does not repair it.' }
+    if (-not $Version) { $Version=[string]$prior.version; $arguments.Version=$Version }
     $backend=Join-Path $metadata 'verifier/deploy/install-broker-stack.ps1'
     foreach ($file in @($backend,(Join-Path $metadata 'verifier/deploy/install_runtime.py'))) {
         Plain $file
@@ -129,6 +135,13 @@ if ($Mode -eq 'Verify') {
     & $backend @arguments
     exit $LASTEXITCODE
 }
+$cursor=$WorkRoot
+while (-not (Test-Path -LiteralPath $cursor)) {
+    $parent=Split-Path -Parent $cursor
+    if (-not $parent -or $parent -eq $cursor) { throw 'WorkRoot requires an existing owned local ancestor.' }
+    $cursor=$parent
+}
+Owned $cursor
 Owned $WorkRoot
 PrivateDirectory $WorkRoot
 foreach ($name in @('tmp','cache')) { $path=Join-Path $WorkRoot $name; Plain $path; if (Test-Path $path) { Owned $path }; PrivateDirectory $path }
@@ -138,6 +151,13 @@ $operation=Join-Path $WorkRoot ('release-'+[guid]::NewGuid().ToString('N'))
 PrivateDirectory $operation
 [Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12
 $api="https://api.github.com/repos/$Repository"
+if (-not $Version) {
+    $latest=Invoke-RestMethod -Uri "$api/releases/latest" -Headers @{'User-Agent'='agent-messaging-installer';'Accept'='application/vnd.github+json'}
+    if ($latest.draft -or $latest.prerelease) { throw 'Latest release is not a published stable release.' }
+    $Version=[string]$latest.tag_name
+}
+if ($Version -notmatch '^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$' -or $Version -in @('latest','HEAD','main','master')) { throw 'Version must resolve to an exact release tag.' }
+$arguments.Version=$Version
 $headers=@{'User-Agent'='agent-messaging-installer';'Accept'='application/vnd.github+json'}
 $tag=Invoke-RestMethod -Uri "$api/git/ref/tags/$([Uri]::EscapeDataString($Version))" -Headers $headers
 $obj=$tag.object
@@ -146,7 +166,12 @@ while ($obj.type -eq 'tag') { if (++$depth -gt 8) { throw 'Annotated tag chain i
 if ($obj.type -ne 'commit' -or $obj.sha -cnotmatch '^[0-9a-f]{40}$') { throw 'Tag does not resolve to a full commit.' }
 $oid=[string]$obj.sha
 $release=Invoke-RestMethod -Uri "$api/releases/tags/$([Uri]::EscapeDataString($Version))" -Headers $headers
-if ($release.tag_name -cne $Version -or $release.draft) { throw 'Release identity mismatch.' }
+if ($release.tag_name -cne $Version -or $release.draft -or $release.prerelease) { throw 'Release must have the selected published stable identity.' }
+if ($prior -and $prior.source_commit -cne $oid) {
+    if ($prior.source_commit -cnotmatch '^[0-9a-f]{40}$') { throw 'Invalid retained source commit.' }
+    $comparison=Invoke-RestMethod -Uri "$api/compare/$($prior.source_commit)...$oid" -Headers $headers
+    if ($comparison.status -cne 'ahead') { throw 'Downgrade or non-descendant source transition refused.' }
+}
 $zipAssets=@($release.assets | Where-Object { $_.name -cmatch '^agent-broker-deploy-[A-Za-z0-9._-]+\.zip$' })
 if ($zipAssets.Count -ne 1) { throw 'Release must have exactly one deployment ZIP.' }
 $zipName=[string]$zipAssets[0].name
@@ -224,10 +249,32 @@ try {
     $manifest=JsonMember 'manifest.json'
     if ($manifest.packagedCommit -cne $oid -or $manifest.bundleVersion -cne $Version -or $manifest.releaseDeclarationSha256 -cne $expected['deploy/release-files.json'].sha256) { throw 'Manifest source/tag/declaration binding mismatch.' }
     if ($manifest.treeSha256 -cne (TreeDigest $expected)) { throw 'Manifest tree digest differs from exact admitted members.' }
-    if ((Hash $PSCommandPath) -cne $expected['install.ps1'].sha256 -or (Hash $front) -cne $expected['install.ps1'].sha256) { throw 'This frontdoor is not the selected release script. Download that release install.ps1 and invoke it explicitly; no self-replacement occurs.' }
+    if ((Hash $front) -cne $expected['install.ps1'].sha256) { throw 'Release frontdoor asset differs from selected committed archive bytes.' }
+    $handoff=[Environment]::GetEnvironmentVariable('AGENT_MESSAGING_FRONTDOOR_HANDOFF','Process')
+    if ($handoff) {
+        $bound=$handoff | ConvertFrom-Json
+        Closed $bound @('version','source_commit','archive_sha256','frontdoor_sha256')
+        if ($bound.version -cne $Version -or $bound.source_commit -cne $oid -or $bound.archive_sha256 -cne $receipt.archive_sha256 -or $bound.frontdoor_sha256 -cne $expected['install.ps1'].sha256) { throw 'Selected release changed during frontdoor handoff.' }
+        if ((Hash $PSCommandPath) -cne $expected['install.ps1'].sha256) { throw 'Selected frontdoor handoff cannot recurse or bypass source binding.' }
+    }
     [IO.Directory]::CreateDirectory($destination) | Out-Null
     foreach ($entry in $zip.Entries) { $target=Join-Path $destination ($entry.FullName.Replace('/','\')); [IO.Directory]::CreateDirectory((Split-Path -Parent $target)) | Out-Null; [IO.Compression.ZipFileExtensions]::ExtractToFile($entry,$target,$false) }
 } finally { $zip.Dispose() }
+if ((Hash $PSCommandPath) -cne $expected['install.ps1'].sha256) {
+    if ($handoff) { throw 'A frontdoor handoff has already occurred.' }
+    $selected=Join-Path $destination 'install.ps1'
+    if ((Hash $selected) -cne $expected['install.ps1'].sha256) { throw 'Extracted frontdoor changed before handoff.' }
+    $bound=[ordered]@{version=$Version;source_commit=$oid;archive_sha256=$receipt.archive_sha256;frontdoor_sha256=$expected['install.ps1'].sha256}
+    $savedHandoff=[Environment]::GetEnvironmentVariable('AGENT_MESSAGING_FRONTDOOR_HANDOFF','Process')
+    try {
+        $env:AGENT_MESSAGING_FRONTDOOR_HANDOFF=ConvertTo-Json -InputObject $bound -Compress
+        $handoffArguments=@{}
+        foreach ($key in $arguments.Keys) { if ($key -ne 'UserRoot') { $handoffArguments[$key]=$arguments[$key] } }
+        & $selected @handoffArguments
+        $result=$LASTEXITCODE
+    } finally { [Environment]::SetEnvironmentVariable('AGENT_MESSAGING_FRONTDOOR_HANDOFF',$savedHandoff,'Process') }
+    exit $result
+}
 $arguments.BundleDir=$destination; $arguments.ReleaseReceipt=$receiptPath
 & (Join-Path $destination 'deploy/install-broker-stack.ps1') @arguments
 exit $LASTEXITCODE

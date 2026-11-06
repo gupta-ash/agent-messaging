@@ -179,6 +179,7 @@ def test_actual_built_package_check_install_and_retained_verify(tmp_path, monkey
     options["Mode"] = "Install"
     installed = installer.run(options, actual_profile=user)
     assert installed["status"] == "installed"
+    assert installed["verification"] == "verified"
     root = Path(options["InstallRoot"])
     assert (root / ".venv/Scripts/agent-messaging.exe").is_file()
     assert not (user / ".claude").exists()
@@ -279,11 +280,11 @@ def test_adopted_port_grammar_preserves_existing_whitespace_selection(tmp_path, 
     envfile = root / "broker.env"
     envfile.write_text("BROKER_HOST = '127.0.0.1'\n" + declaration + "\n")
     before = envfile.read_bytes()
-    p = installer.resolve_parameters({"Version": "2026.01.01.000001", "UserRoot": str(tmp_path / "home"), "InstallRoot": str(root), "PythonExe": sys.executable}, None)
+    p = installer.resolve_parameters({"Version": "2026.01.01.000001", "UserRoot": str(tmp_path / "home"), "InstallRoot": str(root), "PythonExe": sys.executable, "Harness": ["none"]}, None)
     assert p["Port"] == 18491
     assert envfile.read_bytes() == before
     with pytest.raises(installer.Refusal, match="conflicts"):
-        installer.resolve_parameters({"Version": "2026.01.01.000001", "UserRoot": str(tmp_path / "home"), "InstallRoot": str(root), "PythonExe": sys.executable, "Port": 8787}, None)
+        installer.resolve_parameters({"Version": "2026.01.01.000001", "UserRoot": str(tmp_path / "home"), "InstallRoot": str(root), "PythonExe": sys.executable, "Port": 8787, "Harness": ["none"]}, None)
 
 
 @pytest.mark.parametrize("declaration", ["BROKER_PORT=", "BROKER_PORT=018491", "BROKER_PORT=+18491", "BROKER_PORT=65536", "BROKER_PORT=18491 # inline", "BROKER_PORT='18491", 'BROKER_PORT=18491"', "BROKER_PORT : 18491", "broker_port=18491", "export BROKER_PORT=18491", "BROKER_PORT=bad\nBROKER_PORT=18491"])
@@ -387,3 +388,122 @@ def test_activation_requires_a_new_process_identity_even_when_health_is_good(tmp
             with pytest.raises(installer.Refusal, match="old healthy listener"):
                 installer.activate({"InstallRoot": str(root), "Port": 18491}, before, [])
             assert health_queries == []
+
+
+def test_fresh_no_harness_is_service_only_and_environment_python_is_selected(tmp_path, monkeypatch):
+    monkeypatch.setenv("PYTHON_EXE", sys.executable)
+    monkeypatch.delenv("OMP_COMMAND", raising=False)
+    monkeypatch.setattr(installer.shutil, "which", lambda name: None)
+    p = installer.resolve_parameters({"Version": "2026.01.01.000001", "UserRoot": str(tmp_path / "home")}, None)
+    assert p["Harness"] == ["none"]
+    assert p["PythonExe"] == str(Path(sys.executable))
+    assert p["InstallRoot"] == str(tmp_path / "home/.agents/services/broker")
+    assert not (tmp_path / "home").exists()
+
+
+def test_invalid_environment_python_never_falls_back_to_path(tmp_path, monkeypatch):
+    monkeypatch.setenv("PYTHON_EXE", str(tmp_path / "missing-python.exe"))
+    monkeypatch.setattr(installer.shutil, "which", lambda name: sys.executable)
+    with pytest.raises(installer.Refusal, match="Missing/unsafe python"):
+        installer.discover_python(tmp_path / "broker")
+    assert not (tmp_path / "broker").exists()
+
+
+def test_retained_interpreter_and_harness_win_over_changed_environment(tmp_path, monkeypatch):
+    _, _, p = package(tmp_path)
+    p["Harness"] = ["codex"]
+    p["Port"] = 18491
+    monkeypatch.setenv("PYTHON_EXE", str(tmp_path / "different-python.exe"))
+    monkeypatch.setenv("OMP_COMMAND", str(tmp_path / "different-omp.exe"))
+    prior = receipt(p, [])
+    selected = installer.resolve_parameters({"Version": "2026.01.01.000002"}, prior)
+    assert selected == p
+    with pytest.raises(installer.Refusal, match="conflicting PythonExe"):
+        installer.resolve_parameters({"Version": "2026.01.01.000002", "PythonExe": str(tmp_path / "different-python.exe")}, prior)
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows legacy venv home/python.exe contract")
+def test_legacy_venv_base_is_preserved_before_environment_discovery(tmp_path, monkeypatch):
+    root = tmp_path / "broker"
+    configuration = root / ".venv/pyvenv.cfg"
+    configuration.parent.mkdir(parents=True)
+    base = Path(sys.base_prefix) / "python.exe"
+    configuration.write_text(f"home = {base.parent}\nversion = 3.12.1\ninclude-system-site-packages = false\nexecutable = {base}\n")
+    monkeypatch.setenv("PYTHON_EXE", str(tmp_path / "different-python.exe"))
+    assert installer.discover_python(root) == str(base)
+    assert installer.interpreter(str(base))["base"] is True
+    configuration.write_text(configuration.read_text() + "home = duplicate\n")
+    with pytest.raises(installer.Refusal, match="Duplicate legacy"):
+        installer.discover_python(root)
+
+
+def test_automatic_adoption_requires_real_known_broker_anchors(tmp_path):
+    bundle, rows, p = package(tmp_path)
+    recovery = tmp_path / "recovery"
+    recovery.mkdir()
+    writes = installer.output_plan(bundle, rows, p, None, {"schema_version": 1, "files": {}})
+    installer.apply_writes(writes, recovery, [])
+    root = Path(p["InstallRoot"])
+    (root / "broker.env").write_text("BROKER_HOST=127.0.0.1\nBROKER_PORT=8787\n")
+    (root / "coordination.db-wal").write_bytes(b"private retained state")
+    assert installer.recognizable_installation(bundle, rows, p, {"schema_version": 1, "files": {}})
+    (root / "server.py").write_bytes(b"edited application, not adoption authority")
+    with pytest.raises(installer.Refusal, match="Foreign/edited legacy"):
+        installer.recognizable_installation(bundle, rows, p, {"schema_version": 1, "files": {}})
+    assert (root / "coordination.db-wal").read_bytes() == b"private retained state"
+
+
+def test_removed_adoption_override_cannot_authorize_unbound_metadata(tmp_path):
+    bundle, rows, p = package(tmp_path)
+    with pytest.raises(installer.Refusal, match="Unknown installer option"):
+        installer.resolve_parameters({"Version": "2026.01.01.000001", "AdoptExisting": True}, None)
+    metadata_file = Path(p["UserRoot"]) / ".agents/installations/agent-messaging/verifier/deploy/install_runtime.py"
+    metadata_file.parent.mkdir(parents=True)
+    metadata_file.write_bytes((bundle / "deploy/install_runtime.py").read_bytes())
+    before = metadata_file.read_bytes()
+    p["_adopt"] = installer.recognizable_installation(bundle, rows, p, {"schema_version": 1, "files": {}})
+    assert p["_adopt"] is False
+    with pytest.raises(installer.Refusal, match="recognizable same-user installation"):
+        installer.output_plan(bundle, rows, p, None, {"schema_version": 1, "files": {}})
+    assert metadata_file.read_bytes() == before
+    assert not Path(p["InstallRoot"]).exists()
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows legacy venv home/python.exe contract")
+@pytest.mark.parametrize("metadata", ["venv", "alias", "other-base", "relative"])
+def test_legacy_executable_metadata_cannot_override_declared_base(tmp_path, monkeypatch, metadata):
+    root = tmp_path / "broker"
+    configuration = root / ".venv/pyvenv.cfg"
+    configuration.parent.mkdir(parents=True)
+    base = Path(sys.base_prefix) / "python.exe"
+    recorded = {"venv": root / ".venv/Scripts/python.exe", "alias": tmp_path / "WindowsApps/python.exe", "other-base": tmp_path / "other-python/python.exe", "relative": Path("python.exe")}[metadata]
+    configuration.write_text(f"home = {base.parent}\nversion = 3.12.1\ninclude-system-site-packages = false\nexecutable = {recorded}\n")
+    def forbidden(*args, **kwargs):
+        raise AssertionError("Inconsistent executable metadata reached process execution")
+    monkeypatch.setattr(installer, "command", forbidden)
+    with pytest.raises(installer.Refusal, match="metadata conflicts|absolute local path"):
+        installer.discover_python(root)
+
+
+@pytest.mark.parametrize("fault", ["work-overlap", "source-install", "wrong-user"])
+def test_known_unsafe_coordinates_refuse_before_python_or_harness_discovery(tmp_path, monkeypatch, fault):
+    user = tmp_path / "home"
+    user.mkdir()
+    root = user / ".agents/services/broker"
+    work = tmp_path / "work"
+    actual = user
+    if fault == "work-overlap":
+        work = root / "installer-work"
+    elif fault == "source-install":
+        root.mkdir(parents=True)
+        (root / ".git").mkdir()
+    else:
+        actual = tmp_path / "another-account"
+    def forbidden(*args, **kwargs):
+        raise AssertionError("Unsafe coordinates reached external prerequisite discovery")
+    monkeypatch.setattr(installer, "owned", lambda *args: None)
+    monkeypatch.setattr(installer, "interpreter", forbidden)
+    monkeypatch.setattr(installer, "discover_omp", forbidden)
+    with pytest.raises(installer.Refusal, match="overlaps|source checkout|actual invoking profile"):
+        installer.run({"Version": "2026.01.01.000001", "WorkRoot": str(work), "UserRoot": str(user), "InstallRoot": str(root), "PythonExe": sys.executable, "Harness": ["omp"], "Mode": "Check"}, actual_profile=actual)
+    assert not work.exists()
